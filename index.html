@@ -75,7 +75,9 @@ const ICONS = {
   Pencil: "✏️",
   Check: "✓",
   Settings: "⚙️",
-  Save: "💾"
+  Save: "💾",
+  Calendar: "📅",
+  Clock: "⏱️"
 };
 function Icon({
   name,
@@ -117,6 +119,7 @@ function reidratarDatas(data) {
     ...c,
     dataEntrada: new Date(c.dataEntrada),
     dataFinalizacao: c.dataFinalizacao ? new Date(c.dataFinalizacao) : null,
+    previsaoEntrega: c.previsaoEntrega ? new Date(c.previsaoEntrega) : null,
     garantiaAte: c.garantiaAte ? new Date(c.garantiaAte) : null,
     pagamento: {
       ...c.pagamento,
@@ -243,6 +246,49 @@ function addDays(date, days) {
 }
 function formatDate(date) {
   return new Intl.DateTimeFormat("pt-BR").format(date);
+}
+function formatDateTime(date) {
+  if (!date) return "";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+function toInputDateTime(date) {
+  if (!date) return "";
+  const d = new Date(date);
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function fromInputDateTime(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+function toInputDate(date) {
+  if (!date) return "";
+  const d = new Date(date);
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function fromInputDate(value) {
+  if (!value) return null;
+  const d = new Date(value + "T12:00");
+  return isNaN(d.getTime()) ? null : d;
+}
+function formatDuracao(inicio, fim) {
+  if (!inicio) return "—";
+  const fimReal = fim ? new Date(fim) : new Date();
+  const ms = fimReal - new Date(inicio);
+  if (ms < 0) return "0h";
+  const horas = Math.floor(ms / (1000 * 60 * 60));
+  const dias = Math.floor(horas / 24);
+  const horasRestantes = horas % 24;
+  if (dias > 0) return `${dias}d ${horasRestantes}h`;
+  return `${horas}h`;
 }
 function diasRestantes(dataLimite) {
   const hoje = new Date();
@@ -611,7 +657,8 @@ function DetalheModal({
   onPrint,
   onDownload,
   onSendEmail,
-  onSendWhatsapp
+  onSendWhatsapp,
+  onUpdateCard
 }) {
   const [novo, setNovo] = useState({
     nome: "",
@@ -620,6 +667,19 @@ function DetalheModal({
     mecanico: ""
   });
   const [editIndex, setEditIndex] = useState(null);
+  const [editandoDados, setEditandoDados] = useState(false);
+  const [dadosForm, setDadosForm] = useState({
+    cliente: card.cliente || "",
+    telefone: card.telefone || "",
+    cpf: card.cpf || "",
+    endereco: card.endereco || "",
+    email: card.email || "",
+    placa: card.placa || "",
+    marca: card.marca || "",
+    modelo: card.modelo || "",
+    ano: card.ano || "",
+    km: card.km || ""
+  });
   const subtotal = card.total;
   const desconto = card.desconto || {
     tipo: "percentual",
@@ -670,6 +730,232 @@ function DetalheModal({
     size: 18,
     color: TOKENS.ink
   }))), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-xl p-3 mb-4",
+    style: {
+      background: TOKENS.bg,
+      border: `1px solid ${TOKENS.border}`
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setEditandoDados(!editandoDados),
+    className: "w-full flex items-center justify-between text-sm font-bold",
+    style: {
+      color: TOKENS.ink
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "Pencil",
+    size: 14
+  }), " Editar dados do cliente e veículo"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      transform: editandoDados ? "rotate(180deg)" : "none"
+    }
+  }, "⌄")), editandoDados && /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 flex flex-col gap-2"
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "Nome"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "w-full rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: dadosForm.cliente,
+    onChange: e => setDadosForm({
+      ...dadosForm,
+      cliente: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Telefone / WhatsApp"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "w-full rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: dadosForm.telefone,
+    onChange: e => setDadosForm({
+      ...dadosForm,
+      telefone: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "CPF"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "w-full rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: dadosForm.cpf,
+    onChange: e => setDadosForm({
+      ...dadosForm,
+      cpf: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Endereço"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "w-full rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: dadosForm.endereco,
+    onChange: e => setDadosForm({
+      ...dadosForm,
+      endereco: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Email"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "w-full rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: dadosForm.email,
+    onChange: e => setDadosForm({
+      ...dadosForm,
+      email: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-2 gap-2"
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "Placa"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "w-full rounded-lg px-3 py-2 text-sm font-mono",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: dadosForm.placa,
+    onChange: e => setDadosForm({
+      ...dadosForm,
+      placa: e.target.value.toUpperCase()
+    })
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Marca"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "w-full rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: dadosForm.marca,
+    onChange: e => setDadosForm({
+      ...dadosForm,
+      marca: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Modelo"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "w-full rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: dadosForm.modelo,
+    onChange: e => setDadosForm({
+      ...dadosForm,
+      modelo: e.target.value
+    })
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Ano"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "w-full rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: dadosForm.ano,
+    onChange: e => setDadosForm({
+      ...dadosForm,
+      ano: e.target.value
+    })
+  }))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      onUpdateCard({
+        cliente: dadosForm.cliente,
+        telefone: dadosForm.telefone,
+        cpf: dadosForm.cpf,
+        endereco: dadosForm.endereco,
+        email: dadosForm.email,
+        placa: dadosForm.placa.toUpperCase(),
+        marca: dadosForm.marca,
+        modelo: dadosForm.modelo,
+        ano: dadosForm.ano,
+        km: dadosForm.km
+      });
+      setEditandoDados(false);
+    },
+    className: "w-full mt-1 rounded-lg py-2 text-sm font-bold",
+    style: {
+      background: TOKENS.success,
+      color: "#fff"
+    }
+  }, "Salvar alterações"))), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-xl p-3 mb-4",
+    style: {
+      background: TOKENS.bg,
+      border: `1px solid ${TOKENS.border}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs mb-2 font-semibold flex items-center gap-2",
+    style: {
+      color: TOKENS.inkSoft
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "Calendar",
+    size: 14
+  }), " Datas"), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-2"
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "Entrada"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "datetime-local",
+    className: "w-full rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: toInputDateTime(card.dataEntrada),
+    onChange: e => onUpdateCard({
+      dataEntrada: fromInputDateTime(e.target.value) || new Date()
+    })
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Previsão de entrega"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    className: "w-full rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: toInputDate(card.previsaoEntrega),
+    onChange: e => onUpdateCard({
+      previsaoEntrega: fromInputDate(e.target.value)
+    })
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "Saída (deixe em branco se ainda não saiu)"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "datetime-local",
+    className: "w-full rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: toInputDateTime(card.dataFinalizacao),
+    onChange: e => onUpdateCard({
+      dataFinalizacao: fromInputDateTime(e.target.value)
+    })
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs font-bold flex items-center gap-1",
+    style: {
+      color: TOKENS.accentDark
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "Clock",
+    size: 13
+  }), " Tempo parado: ", formatDuracao(card.dataEntrada, card.dataFinalizacao)))), /*#__PURE__*/React.createElement("div", {
     className: "text-xs mb-3 font-semibold",
     style: {
       color: TOKENS.inkSoft
@@ -1176,6 +1462,8 @@ function OficinaApp() {
     valorMaoDeObra: "",
     mecanico: ""
   }]);
+  const [dataEntradaWizard, setDataEntradaWizard] = useState(() => new Date());
+  const [previsaoEntregaWizard, setPrevisaoEntregaWizard] = useState(null);
   const hoje = new Date();
   const [cards, setCards] = useState(() => {
     return [{
@@ -1327,6 +1615,8 @@ function OficinaApp() {
       valorMaoDeObra: "",
       mecanico: ""
     }]);
+    setDataEntradaWizard(new Date());
+    setPrevisaoEntregaWizard(null);
   };
   const canAdvance = () => {
     if (step === 0) return cliente.nome.trim() && cliente.telefone.trim() && cliente.cpf.trim();
@@ -1334,40 +1624,52 @@ function OficinaApp() {
     if (step === 3) return itens.some(it => it.nome.trim() && (it.valorPeca || it.valorMaoDeObra));
     return true;
   };
+  const montarCard = itensValidos => ({
+    id: Date.now(),
+    placa: veiculo.placa.toUpperCase(),
+    marca: veiculo.marca,
+    modelo: veiculo.modelo,
+    ano: veiculo.ano,
+    km: veiculo.km,
+    cliente: cliente.nome,
+    cpf: cliente.cpf,
+    telefone: cliente.telefone,
+    email: cliente.email,
+    endereco: cliente.endereco,
+    coluna: itensValidos.length > 0 ? "orcamento" : "recebido",
+    dataEntrada: dataEntradaWizard || new Date(),
+    previsaoEntrega: previsaoEntregaWizard,
+    dataFinalizacao: null,
+    itens: itensValidos,
+    total: cardTotal(itensValidos),
+    desconto: {
+      tipo: "percentual",
+      valor: 0
+    },
+    formaPagamento: {
+      tipo: "Dinheiro",
+      parcelas: 1
+    },
+    pagamento: {
+      status: "pendente",
+      forma: null,
+      data: null
+    },
+    garantiaAte: null,
+    arquivado: false
+  });
   const salvarNoPainel = () => {
     const itensValidos = itens.filter(it => it.nome.trim());
-    const novoCard = {
-      id: Date.now(),
-      placa: veiculo.placa.toUpperCase(),
-      cliente: cliente.nome,
-      cpf: cliente.cpf,
-      telefone: cliente.telefone,
-      email: cliente.email,
-      coluna: "orcamento",
-      dataEntrada: new Date(),
-      dataFinalizacao: null,
-      itens: itensValidos,
-      total: cardTotal(itensValidos),
-      desconto: {
-        tipo: "percentual",
-        valor: 0
-      },
-      formaPagamento: {
-        tipo: "Dinheiro",
-        parcelas: 1
-      },
-      pagamento: {
-        status: "pendente",
-        forma: null,
-        data: null
-      },
-      garantiaAte: null,
-      arquivado: false
-    };
-    setCards(c => [...c, novoCard]);
+    setCards(c => [...c, montarCard(itensValidos)]);
     setScreen("painel");
     resetWizard();
     showToast("Carro salvo! Já aparece no painel de status.");
+  };
+  const salvarSemOrcamento = () => {
+    setCards(c => [...c, montarCard([])]);
+    setScreen("painel");
+    resetWizard();
+    showToast("Carro cadastrado! Adicione o orçamento quando quiser, direto no card.");
   };
   const avancarStatus = id => {
     setCards(cs => cs.map(c => {
@@ -1435,14 +1737,23 @@ function OficinaApp() {
     setPagamentoAberto(null);
     showToast("Pagamento registrado.");
   };
+  const atualizarCard = (id, campos) => {
+    setCards(cs => cs.map(c => c.id === id ? {
+      ...c,
+      ...campos
+    } : c));
+    showToast("Dados atualizados.");
+  };
   const adicionarItemNoCard = (id, item) => {
     setCards(cs => cs.map(c => {
       if (c.id !== id) return c;
       const novosItens = [...c.itens, item];
+      const novaColuna = c.coluna === "recebido" ? "orcamento" : c.coluna;
       return {
         ...c,
         itens: novosItens,
-        total: cardTotal(novosItens)
+        total: cardTotal(novosItens),
+        coluna: novaColuna
       };
     }));
     showToast("Item adicionado à ordem de serviço.");
@@ -1674,6 +1985,16 @@ function OficinaApp() {
           color: TOKENS.inkSoft
         }
       }, "R$ ", totalComDesconto(c).toFixed(2)), /*#__PURE__*/React.createElement("div", {
+        className: "text-xs mb-2 flex items-center gap-2 flex-wrap",
+        style: {
+          color: TOKENS.accentDark
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "flex items-center gap-1"
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "Clock",
+        size: 12
+      }), " ", formatDuracao(c.dataEntrada, c.dataFinalizacao)), c.previsaoEntrega && /*#__PURE__*/React.createElement("span", null, "· previsão ", formatDate(c.previsaoEntrega))), /*#__PURE__*/React.createElement("div", {
         className: "flex gap-2",
         onClick: e => e.stopPropagation()
       }, /*#__PURE__*/React.createElement("button", {
@@ -1763,7 +2084,8 @@ function OficinaApp() {
       onPrint: () => imprimirCard(cardDetalhe.id),
       onDownload: () => baixarOrcamentoCard(cardDetalhe),
       onSendEmail: () => showToast(`Orçamento enviado por email para ${cardDetalhe.email || "o cliente"}`),
-      onSendWhatsapp: () => showToast(`Orçamento enviado por WhatsApp para ${cardDetalhe.telefone}`)
+      onSendWhatsapp: () => showToast(`Orçamento enviado por WhatsApp para ${cardDetalhe.telefone}`),
+      onUpdateCard: campos => atualizarCard(cardDetalhe.id, campos)
     }), toast && /*#__PURE__*/React.createElement(Toast, {
       message: toast
     }));
@@ -2898,6 +3220,24 @@ function OficinaApp() {
         ...veiculo,
         km: e.target.value
       })
+    }))), /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-cols-2 gap-4 mt-4"
+    }, /*#__PURE__*/React.createElement(Field, {
+      label: "Data e hora de entrada"
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "datetime-local",
+      className: "w-full rounded-lg px-4 py-3",
+      style: inputStyle,
+      value: toInputDateTime(dataEntradaWizard),
+      onChange: e => setDataEntradaWizard(fromInputDateTime(e.target.value) || new Date())
+    })), /*#__PURE__*/React.createElement(Field, {
+      label: "Previsão de entrega (opcional)"
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "date",
+      className: "w-full rounded-lg px-4 py-3",
+      style: inputStyle,
+      value: toInputDate(previsaoEntregaWizard),
+      onChange: e => setPrevisaoEntregaWizard(fromInputDate(e.target.value))
     })))), step === 2 && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-2 mb-5"
     }, /*#__PURE__*/React.createElement(Icon, {
@@ -3065,7 +3405,18 @@ function OficinaApp() {
     }, "Próximo ", /*#__PURE__*/React.createElement(Icon, {
       name: "ArrowRight",
       size: 18
-    })), toast && /*#__PURE__*/React.createElement(Toast, {
+    })), step >= 1 && step < 4 && veiculo.placa.trim() && veiculo.marca.trim() && cliente.nome.trim() && /*#__PURE__*/React.createElement("button", {
+      onClick: salvarSemOrcamento,
+      className: "w-full mt-3 rounded-lg py-3 font-bold flex items-center justify-center gap-2",
+      style: {
+        background: "#fff",
+        border: `2px solid ${TOKENS.accent}`,
+        color: TOKENS.accent
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "Car",
+      size: 18
+    }), " Só cadastrar o carro (orçamento depois)"), toast && /*#__PURE__*/React.createElement(Toast, {
       message: toast
     })));
   }
