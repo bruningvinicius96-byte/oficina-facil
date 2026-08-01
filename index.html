@@ -2020,6 +2020,18 @@ function OficinaApp() {
     } : c));
     showToast("Removido do painel — continua salvo no financeiro.");
   };
+  const desarquivarCard = id => {
+    setCards(cs => cs.map(c => c.id === id ? {
+      ...c,
+      arquivado: false,
+      pagamento: {
+        status: "pendente",
+        forma: null,
+        data: null
+      }
+    } : c));
+    showToast("Carro de volta no painel! Pagamento voltou a ficar pendente.");
+  };
   const confirmarPagamentoEArquivar = (id, forma) => {
     const cardPago = cards.find(c => c.id === id);
     setCards(cs => cs.map(c => c.id === id ? {
@@ -3164,7 +3176,28 @@ function OficinaApp() {
           style: {
             color: "#C0392B"
           }
-        }, "Senha incorreta, tente de novo.")), /*#__PURE__*/React.createElement("div", {
+        }, "Senha incorreta, tente de novo.")), c.arquivado && /*#__PURE__*/React.createElement("div", {
+          className: "rounded-lg p-3 mb-3 flex flex-wrap items-center justify-between gap-2",
+          style: {
+            background: TOKENS.bg,
+            border: `1px dashed ${TOKENS.border}`
+          }
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-xs font-semibold",
+          style: {
+            color: TOKENS.inkSoft
+          }
+        }, "Esse carro já foi tirado do painel. Confirmou pagamento por engano ou fechou antes da hora? Isso volta o carro pro painel e desfaz o pagamento (fica pendente de novo)."), /*#__PURE__*/React.createElement("button", {
+          onClick: () => desarquivarCard(c.id),
+          className: "flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg",
+          style: {
+            background: TOKENS.accent,
+            color: "#fff"
+          }
+        }, /*#__PURE__*/React.createElement(Icon, {
+          name: "ArrowLeft",
+          size: 14
+        }), " Voltar pro painel")), /*#__PURE__*/React.createElement("div", {
           className: "flex flex-wrap gap-2 mb-3"
         }, c.itens.map((it, i) => /*#__PURE__*/React.createElement("span", {
           key: i,
