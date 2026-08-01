@@ -688,7 +688,8 @@ function DetalheModal({
   onSendEmail,
   onSendWhatsapp,
   onUpdateCard,
-  onConfirmarPagamento
+  onConfirmarPagamento,
+  onEncerrarOS
 }) {
   const [novo, setNovo] = useState({
     nome: "",
@@ -1166,11 +1167,13 @@ function DetalheModal({
     key: n,
     value: n
   }, n, "x · taxa ", TAXAS_PARCELAMENTO[n].toFixed(2).replace(".", ","), "%")))), card.pagamento.status === "pago" ? /*#__PURE__*/React.createElement("div", {
-    className: "rounded-xl px-4 py-3 mb-4 flex items-center gap-2",
+    className: "rounded-xl px-4 py-3 mb-4",
     style: {
       background: TOKENS.successSoft,
       border: `1px solid ${TOKENS.success}`
     }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 mb-2"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "CheckCircle2",
     size: 16,
@@ -1180,7 +1183,17 @@ function DetalheModal({
     style: {
       color: TOKENS.success
     }
-  }, "Pago via ", card.pagamento.forma, " em ", formatDate(card.pagamento.data))) : /*#__PURE__*/React.createElement("button", {
+  }, "Pago via ", card.pagamento.forma, " em ", formatDate(card.pagamento.data))), card.coluna === "pronto" && !card.arquivado && /*#__PURE__*/React.createElement("button", {
+    onClick: onEncerrarOS,
+    className: "w-full rounded-lg py-2.5 font-bold flex items-center justify-center gap-2 mt-1",
+    style: {
+      background: TOKENS.success,
+      color: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "Check",
+    size: 16
+  }), " Encerrar ordem de serviço (tirar do painel)")) : /*#__PURE__*/React.createElement("button", {
     onClick: () => onConfirmarPagamento(formaPagamento.tipo),
     className: "w-full rounded-xl py-3 mb-4 font-bold flex items-center justify-center gap-2",
     style: {
@@ -2507,6 +2520,10 @@ function OficinaApp() {
       onUpdateCard: campos => atualizarCard(cardDetalhe.id, campos),
       onConfirmarPagamento: forma => {
         if (cardDetalhe.coluna === "pronto") confirmarPagamentoEArquivar(cardDetalhe.id, forma);else marcarPagamento(cardDetalhe.id, forma);
+        setDetalheId(null);
+      },
+      onEncerrarOS: () => {
+        arquivarCard(cardDetalhe.id);
         setDetalheId(null);
       }
     }), toast && /*#__PURE__*/React.createElement(Toast, {
