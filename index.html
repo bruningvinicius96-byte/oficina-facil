@@ -38,7 +38,8 @@
 <script>
 const {
   useState,
-  useEffect
+  useEffect,
+  useRef
 } = React;
 const ICONS = {
   User: "👤",
@@ -289,6 +290,27 @@ function formatDuracao(inicio, fim) {
   const horasRestantes = horas % 24;
   if (dias > 0) return `${dias}d ${horasRestantes}h`;
   return `${horas}h`;
+}
+function montarMensagemOrcamento({
+  cliente,
+  placa,
+  marca,
+  modelo,
+  itens,
+  total,
+  oficina
+}) {
+  const linhas = (itens || []).filter(it => it.nome && it.nome.trim()).map(it => `- ${it.nome}: R$ ${itemTotal(it).toFixed(2)}`).join("\n");
+  const veiculoTxt = [marca, modelo].filter(Boolean).join(" ");
+  return `Olá ${cliente || ""}! Segue o orçamento do seu veículo${veiculoTxt ? " " + veiculoTxt : ""} (placa ${placa || ""}):\n\n${linhas || "Itens a definir"}\n\nTotal: R$ ${(total || 0).toFixed(2)}\n\n${oficina && oficina.nome ? oficina.nome : ""}`;
+}
+function linkWhatsapp(telefone, mensagem) {
+  let numero = (telefone || "").replace(/\D/g, "");
+  if (numero.length > 0 && numero.length <= 11) numero = "55" + numero;
+  return `https://wa.me/${numero}?text=${encodeURIComponent(mensagem)}`;
+}
+function linkEmail(email, assunto, mensagem) {
+  return `mailto:${email || ""}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(mensagem)}`;
 }
 function diasRestantes(dataLimite) {
   const hoje = new Date();
@@ -680,6 +702,7 @@ function DetalheModal({
     ano: card.ano || "",
     km: card.km || ""
   });
+  const [obsLocal, setObsLocal] = useState(card.observacoes || "");
   const subtotal = card.total;
   const desconto = card.desconto || {
     tipo: "percentual",
@@ -956,6 +979,46 @@ function DetalheModal({
     name: "Clock",
     size: 13
   }), " Tempo parado: ", formatDuracao(card.dataEntrada, card.dataFinalizacao)))), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-xl p-3 mb-4",
+    style: {
+      background: TOKENS.bg,
+      border: `1px solid ${TOKENS.border}`
+    }
+  }, card.problema && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs mb-1 font-semibold flex items-center gap-2",
+    style: {
+      color: TOKENS.inkSoft
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "ClipboardList",
+    size: 14
+  }), " Problema relatado"), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm mb-3",
+    style: {
+      color: TOKENS.ink
+    }
+  }, card.problema)), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs mb-2 font-semibold flex items-center gap-2",
+    style: {
+      color: TOKENS.inkSoft
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "Pencil",
+    size: 14
+  }), " Observações"), /*#__PURE__*/React.createElement("textarea", {
+    className: "w-full rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff",
+      minHeight: 80
+    },
+    placeholder: "Anote aqui qualquer observação sobre o carro, cliente ou serviço...",
+    value: obsLocal,
+    onChange: e => setObsLocal(e.target.value),
+    onBlur: () => onUpdateCard({
+      observacoes: obsLocal
+    })
+  })), /*#__PURE__*/React.createElement("div", {
     className: "text-xs mb-3 font-semibold",
     style: {
       color: TOKENS.inkSoft
@@ -1398,6 +1461,99 @@ function gerarHtmlOrcamento(card, oficina) {
     </div>
   </body></html>`;
 }
+function CardMini({
+  c,
+  isFirst,
+  isPronto,
+  onOpen,
+  onVoltar,
+  onAvancar,
+  onArquivar
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "rounded-xl p-3 cursor-pointer",
+    style: {
+      background: TOKENS.bg,
+      border: `1px solid ${TOKENS.border}`
+    },
+    onClick: onOpen
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-1"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-xs font-bold px-2 py-0.5 rounded",
+    style: {
+      background: TOKENS.plateBlue,
+      color: "#fff",
+      fontFamily: "monospace",
+      letterSpacing: 1
+    }
+  }, c.placa), /*#__PURE__*/React.createElement(Icon, {
+    name: "Eye",
+    size: 16,
+    color: TOKENS.inkSoft
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "text-sm font-semibold",
+    style: {
+      color: TOKENS.ink
+    }
+  }, c.cliente), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs mb-1",
+    style: {
+      color: TOKENS.inkSoft
+    }
+  }, c.itens.map(it => it.mecanico).filter(Boolean).join(", ") || "Sem mecânico definido"), /*#__PURE__*/React.createElement("div", {
+    className: "text-sm mb-2 font-semibold",
+    style: {
+      color: TOKENS.inkSoft
+    }
+  }, "R$ ", totalComDesconto(c).toFixed(2)), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs mb-2 flex items-center gap-2 flex-wrap",
+    style: {
+      color: TOKENS.accentDark
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "flex items-center gap-1"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "Clock",
+    size: 12
+  }), " ", formatDuracao(c.dataEntrada, c.dataFinalizacao)), c.previsaoEntrega && /*#__PURE__*/React.createElement("span", null, "· previsão ", formatDate(c.previsaoEntrega))), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onVoltar,
+    disabled: isFirst,
+    className: "flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded-lg flex-1 justify-center",
+    style: {
+      background: "#fff",
+      color: isFirst ? "#B7C1C8" : TOKENS.ink,
+      border: `1px solid ${TOKENS.border}`,
+      cursor: isFirst ? "not-allowed" : "pointer"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "ArrowLeft",
+    size: 14
+  }), " Voltar"), isPronto ? /*#__PURE__*/React.createElement("button", {
+    onClick: onArquivar,
+    className: "flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded-lg flex-1 justify-center",
+    style: {
+      background: TOKENS.warnSoft,
+      color: TOKENS.warn
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "Trash2",
+    size: 14
+  }), " Remover") : /*#__PURE__*/React.createElement("button", {
+    onClick: onAvancar,
+    className: "flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded-lg flex-1 justify-center",
+    style: {
+      background: TOKENS.accent,
+      color: "#fff"
+    }
+  }, "Avançar ", /*#__PURE__*/React.createElement(Icon, {
+    name: "ArrowRight",
+    size: 14
+  }))));
+}
 function OficinaApp() {
   const [screen, setScreen] = useState("home");
   const [step, setStep] = useState(0);
@@ -1406,6 +1562,8 @@ function OficinaApp() {
   const [detalheId, setDetalheId] = useState(null);
   const [mostrarArquivados, setMostrarArquivados] = useState(false);
   const [imprimirId, setImprimirId] = useState(null);
+  const [colunaMobileIndex, setColunaMobileIndex] = useState(0);
+  const touchStartX = useRef(0);
   const [financeiroAuth, setFinanceiroAuth] = useState(false);
   const [senha, setSenha] = useState("");
   const [senhaErro, setSenhaErro] = useState(false);
@@ -1464,6 +1622,7 @@ function OficinaApp() {
   }]);
   const [dataEntradaWizard, setDataEntradaWizard] = useState(() => new Date());
   const [previsaoEntregaWizard, setPrevisaoEntregaWizard] = useState(null);
+  const [observacoesWizard, setObservacoesWizard] = useState("");
   const hoje = new Date();
   const [cards, setCards] = useState(() => {
     return [{
@@ -1617,6 +1776,7 @@ function OficinaApp() {
     }]);
     setDataEntradaWizard(new Date());
     setPrevisaoEntregaWizard(null);
+    setObservacoesWizard("");
   };
   const canAdvance = () => {
     if (step === 0) return cliente.nome.trim() && cliente.telefone.trim() && cliente.cpf.trim();
@@ -1640,6 +1800,8 @@ function OficinaApp() {
     dataEntrada: dataEntradaWizard || new Date(),
     previsaoEntrega: previsaoEntregaWizard,
     dataFinalizacao: null,
+    problema: problema,
+    observacoes: observacoesWizard,
     itens: itensValidos,
     total: cardTotal(itensValidos),
     desconto: {
@@ -1928,7 +2090,7 @@ function OficinaApp() {
         fontFamily: "Poppins, sans-serif"
       }
     }, "Painel de status")), /*#__PURE__*/React.createElement("div", {
-      className: "flex gap-4 overflow-x-auto pb-4"
+      className: "hidden md:flex gap-4 overflow-x-auto pb-4"
     }, COLUMNS.map(col => /*#__PURE__*/React.createElement("div", {
       key: col.key,
       className: "flex-1 min-w-[220px]"
@@ -1947,91 +2109,92 @@ function OficinaApp() {
       }
     }, cards.filter(c => c.coluna === col.key && !c.arquivado).map(c => {
       const idx = COLUMNS.findIndex(x => x.key === c.coluna);
-      return /*#__PURE__*/React.createElement("div", {
+      return /*#__PURE__*/React.createElement(CardMini, {
         key: c.id,
-        className: "rounded-xl p-3 cursor-pointer",
-        style: {
-          background: TOKENS.bg,
-          border: `1px solid ${TOKENS.border}`
-        },
-        onClick: () => setDetalheId(c.id)
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "flex items-center justify-between mb-1"
-      }, /*#__PURE__*/React.createElement("span", {
-        className: "text-xs font-bold px-2 py-0.5 rounded",
-        style: {
-          background: TOKENS.plateBlue,
-          color: "#fff",
-          fontFamily: "monospace",
-          letterSpacing: 1
-        }
-      }, c.placa), /*#__PURE__*/React.createElement(Icon, {
-        name: "Eye",
-        size: 16,
+        c: c,
+        isFirst: idx === 0,
+        isPronto: col.key === "pronto",
+        onOpen: () => setDetalheId(c.id),
+        onVoltar: () => voltarStatus(c.id),
+        onAvancar: () => avancarStatus(c.id),
+        onArquivar: () => arquivarCard(c.id)
+      });
+    }))))), /*#__PURE__*/React.createElement("div", {
+      className: "flex md:hidden flex-col gap-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setColunaMobileIndex(i => Math.max(0, i - 1)),
+      disabled: colunaMobileIndex === 0,
+      className: "p-2 rounded-lg",
+      style: {
+        background: TOKENS.panel,
+        border: `2px solid ${TOKENS.border}`,
+        opacity: colunaMobileIndex === 0 ? 0.4 : 1
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "ArrowLeft",
+      size: 18,
+      color: TOKENS.ink
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "text-sm font-bold",
+      style: {
+        color: TOKENS.ink
+      }
+    }, COLUMNS[colunaMobileIndex].label, " (", cards.filter(c => c.coluna === COLUMNS[colunaMobileIndex].key && !c.arquivado).length, ")"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setColunaMobileIndex(i => Math.min(COLUMNS.length - 1, i + 1)),
+      disabled: colunaMobileIndex === COLUMNS.length - 1,
+      className: "p-2 rounded-lg",
+      style: {
+        background: TOKENS.panel,
+        border: `2px solid ${TOKENS.border}`,
+        opacity: colunaMobileIndex === COLUMNS.length - 1 ? 0.4 : 1
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "ArrowRight",
+      size: 18,
+      color: TOKENS.ink
+    }))), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-center gap-1.5"
+    }, COLUMNS.map((col, i) => /*#__PURE__*/React.createElement("div", {
+      key: col.key,
+      onClick: () => setColunaMobileIndex(i),
+      style: {
+        width: i === colunaMobileIndex ? 18 : 6,
+        height: 6,
+        borderRadius: 3,
+        background: i === colunaMobileIndex ? TOKENS.accent : TOKENS.border,
+        cursor: "pointer",
+        transition: "width 0.15s"
+      }
+    }))), /*#__PURE__*/React.createElement("div", {
+      className: "rounded-xl p-3 flex flex-col gap-3 min-h-[300px]",
+      style: {
+        background: "#fff",
+        border: `2px solid ${TOKENS.border}`
+      },
+      onTouchStart: e => {
+        touchStartX.current = e.touches[0].clientX;
+      },
+      onTouchEnd: e => {
+        const dx = e.changedTouches[0].clientX - touchStartX.current;
+        if (dx < -50) setColunaMobileIndex(i => Math.min(COLUMNS.length - 1, i + 1));else if (dx > 50) setColunaMobileIndex(i => Math.max(0, i - 1));
+      }
+    }, cards.filter(c => c.coluna === COLUMNS[colunaMobileIndex].key && !c.arquivado).map(c => /*#__PURE__*/React.createElement(CardMini, {
+      key: c.id,
+      c: c,
+      isFirst: colunaMobileIndex === 0,
+      isPronto: COLUMNS[colunaMobileIndex].key === "pronto",
+      onOpen: () => setDetalheId(c.id),
+      onVoltar: () => voltarStatus(c.id),
+      onAvancar: () => avancarStatus(c.id),
+      onArquivar: () => arquivarCard(c.id)
+    })), cards.filter(c => c.coluna === COLUMNS[colunaMobileIndex].key && !c.arquivado).length === 0 && /*#__PURE__*/React.createElement("p", {
+      className: "text-xs text-center py-8",
+      style: {
         color: TOKENS.inkSoft
-      })), /*#__PURE__*/React.createElement("div", {
-        className: "text-sm font-semibold",
-        style: {
-          color: TOKENS.ink
-        }
-      }, c.cliente), /*#__PURE__*/React.createElement("div", {
-        className: "text-xs mb-1",
-        style: {
-          color: TOKENS.inkSoft
-        }
-      }, c.itens.map(it => it.mecanico).filter(Boolean).join(", ") || "Sem mecânico definido"), /*#__PURE__*/React.createElement("div", {
-        className: "text-sm mb-2 font-semibold",
-        style: {
-          color: TOKENS.inkSoft
-        }
-      }, "R$ ", totalComDesconto(c).toFixed(2)), /*#__PURE__*/React.createElement("div", {
-        className: "text-xs mb-2 flex items-center gap-2 flex-wrap",
-        style: {
-          color: TOKENS.accentDark
-        }
-      }, /*#__PURE__*/React.createElement("span", {
-        className: "flex items-center gap-1"
-      }, /*#__PURE__*/React.createElement(Icon, {
-        name: "Clock",
-        size: 12
-      }), " ", formatDuracao(c.dataEntrada, c.dataFinalizacao)), c.previsaoEntrega && /*#__PURE__*/React.createElement("span", null, "· previsão ", formatDate(c.previsaoEntrega))), /*#__PURE__*/React.createElement("div", {
-        className: "flex gap-2",
-        onClick: e => e.stopPropagation()
-      }, /*#__PURE__*/React.createElement("button", {
-        onClick: () => voltarStatus(c.id),
-        disabled: idx === 0,
-        className: "flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded-lg flex-1 justify-center",
-        style: {
-          background: "#fff",
-          color: idx === 0 ? "#B7C1C8" : TOKENS.ink,
-          border: `1px solid ${TOKENS.border}`,
-          cursor: idx === 0 ? "not-allowed" : "pointer"
-        }
-      }, /*#__PURE__*/React.createElement(Icon, {
-        name: "ArrowLeft",
-        size: 14
-      }), " Voltar"), col.key === "pronto" ? /*#__PURE__*/React.createElement("button", {
-        onClick: () => arquivarCard(c.id),
-        className: "flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded-lg flex-1 justify-center",
-        style: {
-          background: TOKENS.warnSoft,
-          color: TOKENS.warn
-        }
-      }, /*#__PURE__*/React.createElement(Icon, {
-        name: "Trash2",
-        size: 14
-      }), " Remover") : /*#__PURE__*/React.createElement("button", {
-        onClick: () => avancarStatus(c.id),
-        className: "flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded-lg flex-1 justify-center",
-        style: {
-          background: TOKENS.accent,
-          color: "#fff"
-        }
-      }, "Avançar ", /*#__PURE__*/React.createElement(Icon, {
-        name: "ArrowRight",
-        size: 14
-      }))));
-    }))))), cards.some(c => c.arquivado) && /*#__PURE__*/React.createElement("div", {
+      }
+    }, "Nenhum carro nessa etapa. Arraste pro lado ou use as setas pra ver outra coluna."))), cards.some(c => c.arquivado) && /*#__PURE__*/React.createElement("div", {
       className: "mt-4 rounded-xl overflow-hidden",
       style: {
         border: `1px solid ${TOKENS.border}`
@@ -2083,8 +2246,16 @@ function OficinaApp() {
       onUpdateFormaPagamento: f => atualizarFormaPagamento(cardDetalhe.id, f),
       onPrint: () => imprimirCard(cardDetalhe.id),
       onDownload: () => baixarOrcamentoCard(cardDetalhe),
-      onSendEmail: () => showToast(`Orçamento enviado por email para ${cardDetalhe.email || "o cliente"}`),
-      onSendWhatsapp: () => showToast(`Orçamento enviado por WhatsApp para ${cardDetalhe.telefone}`),
+      onSendEmail: () => window.open(linkEmail(cardDetalhe.email, `Orçamento - ${cardDetalhe.placa}`, montarMensagemOrcamento({
+        ...cardDetalhe,
+        total: totalComDesconto(cardDetalhe),
+        oficina
+      })), "_blank"),
+      onSendWhatsapp: () => window.open(linkWhatsapp(cardDetalhe.telefone, montarMensagemOrcamento({
+        ...cardDetalhe,
+        total: totalComDesconto(cardDetalhe),
+        oficina
+      })), "_blank"),
       onUpdateCard: campos => atualizarCard(cardDetalhe.id, campos)
     }), toast && /*#__PURE__*/React.createElement(Toast, {
       message: toast
@@ -2914,7 +3085,12 @@ function OficinaApp() {
           ...configTi,
           smtpSenha: e.target.value
         })
-      }))), /*#__PURE__*/React.createElement("div", {
+      })), /*#__PURE__*/React.createElement("p", {
+        className: "text-xs mt-1",
+        style: {
+          color: TOKENS.inkSoft
+        }
+      }, "Esses campos ficam salvos pra quando vocês configurarem um envio 100% automático no futuro. Hoje, o botão \"Email\" nos orçamentos já funciona: ele abre seu aplicativo de email padrão com a mensagem pronta pra você só clicar em enviar.")), /*#__PURE__*/React.createElement("div", {
         className: "rounded-2xl p-5 mb-4",
         style: {
           background: TOKENS.panel,
@@ -2963,7 +3139,12 @@ function OficinaApp() {
           ...configTi,
           whatsappNumero: e.target.value
         })
-      }))), /*#__PURE__*/React.createElement("div", {
+      })), /*#__PURE__*/React.createElement("p", {
+        className: "text-xs mt-1",
+        style: {
+          color: TOKENS.inkSoft
+        }
+      }, "Assim como o email, esses campos ficam prontos pra uma integração automática futura. Hoje, o botão \"WhatsApp\" já funciona de verdade: abre o WhatsApp Web/App com a mensagem do orçamento pronta pra enviar ao cliente.")), /*#__PURE__*/React.createElement("div", {
         className: "rounded-2xl p-5 mb-4",
         style: {
           background: TOKENS.panel,
@@ -3260,6 +3441,17 @@ function OficinaApp() {
       placeholder: "Ex: barulho estranho ao frear, carro puxando pra esquerda...",
       value: problema,
       onChange: e => setProblema(e.target.value)
+    })), /*#__PURE__*/React.createElement(Field, {
+      label: "Observações internas (opcional)"
+    }, /*#__PURE__*/React.createElement("textarea", {
+      className: "w-full rounded-lg px-4 py-3 text-base",
+      style: {
+        ...inputStyle,
+        minHeight: 80
+      },
+      placeholder: "Qualquer observação adicional sobre o carro, cliente ou combinado...",
+      value: observacoesWizard,
+      onChange: e => setObservacoesWizard(e.target.value)
     })), /*#__PURE__*/React.createElement("button", {
       onClick: () => setFoto("foto_carro_01.jpg"),
       className: "flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold w-full justify-center",
@@ -3366,7 +3558,15 @@ function OficinaApp() {
     }, "Total: R$ ", total.toFixed(2))), /*#__PURE__*/React.createElement("div", {
       className: "flex flex-col gap-3 mb-5"
     }, /*#__PURE__*/React.createElement("button", {
-      onClick: () => showToast(`Orçamento enviado por email para ${cliente.email || "o cliente"}`),
+      onClick: () => window.open(linkEmail(cliente.email, `Orçamento - ${veiculo.placa}`, montarMensagemOrcamento({
+        cliente: cliente.nome,
+        placa: veiculo.placa,
+        marca: veiculo.marca,
+        modelo: veiculo.modelo,
+        itens,
+        total,
+        oficina
+      })), "_blank"),
       className: "flex items-center justify-center gap-2 rounded-lg py-3 font-bold",
       style: {
         background: "#fff",
@@ -3377,7 +3577,15 @@ function OficinaApp() {
       name: "Mail",
       size: 18
     }), " Enviar por email"), /*#__PURE__*/React.createElement("button", {
-      onClick: () => showToast(`Orçamento enviado por WhatsApp para ${cliente.telefone}`),
+      onClick: () => window.open(linkWhatsapp(cliente.telefone, montarMensagemOrcamento({
+        cliente: cliente.nome,
+        placa: veiculo.placa,
+        marca: veiculo.marca,
+        modelo: veiculo.modelo,
+        itens,
+        total,
+        oficina
+      })), "_blank"),
       className: "flex items-center justify-center gap-2 rounded-lg py-3 font-bold",
       style: {
         background: "#25D366",
