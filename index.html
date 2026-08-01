@@ -100,14 +100,17 @@ function Icon({
 }
 const db = firebase.firestore();
 const DOC_REF = db.collection("oficina").doc("dados");
-async function salvarEstadoRemoto(cards, mecanicos, configTi, oficina) {
+async function salvarEstadoRemoto(cards, mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos) {
   try {
     await DOC_REF.set({
       json: JSON.stringify({
         cards,
         mecanicos,
         configTi,
-        oficina
+        oficina,
+        gastosFixos,
+        gastosPorMes,
+        caixaMovimentos
       }),
       atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
     });
@@ -126,6 +129,10 @@ function reidratarDatas(data) {
       ...c.pagamento,
       data: c.pagamento.data ? new Date(c.pagamento.data) : null
     }
+  }));
+  data.caixaMovimentos = (data.caixaMovimentos || []).map(m => ({
+    ...m,
+    data: new Date(m.data)
   }));
   return data;
 }
@@ -1554,6 +1561,109 @@ function CardMini({
     size: 14
   }))));
 }
+function NovoGastoFixoForm({
+  onAdd
+}) {
+  const [nome, setNome] = useState("");
+  const [valor, setValor] = useState("");
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "flex-1 rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    placeholder: "Ex: Luz, Água, Salário mecânico X...",
+    value: nome,
+    onChange: e => setNome(e.target.value)
+  }), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: "w-28 rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    placeholder: "0,00",
+    value: valor,
+    onChange: e => setValor(e.target.value)
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      if (!nome.trim()) return;
+      onAdd(nome.trim(), valor);
+      setNome("");
+      setValor("");
+    },
+    className: "rounded-lg px-3 py-2 text-sm font-bold",
+    style: {
+      background: TOKENS.accent,
+      color: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "Plus",
+    size: 16
+  })));
+}
+function NovoMovimentoCaixaForm({
+  onAdd
+}) {
+  const [tipo, setTipo] = useState("saida");
+  const [valor, setValor] = useState("");
+  const [descricao, setDescricao] = useState("");
+  return /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    value: tipo,
+    onChange: e => setTipo(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "entrada"
+  }, "Entrada"), /*#__PURE__*/React.createElement("option", {
+    value: "saida"
+  }, "Saída")), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: "w-28 rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    placeholder: "0,00",
+    value: valor,
+    onChange: e => setValor(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "flex-1 rounded-lg px-3 py-2 text-sm",
+    style: {
+      ...inputStyle,
+      background: "#fff"
+    },
+    placeholder: "Descrição (ex: compra de peças, retirada...)",
+    value: descricao,
+    onChange: e => setDescricao(e.target.value)
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      if (!valor || parseFloat(valor) <= 0) return;
+      onAdd(tipo, valor, descricao || (tipo === "entrada" ? "Entrada manual" : "Saída manual"));
+      setValor("");
+      setDescricao("");
+    },
+    className: "rounded-lg px-3 py-2 text-sm font-bold",
+    style: {
+      background: TOKENS.accent,
+      color: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "Plus",
+    size: 16
+  }))));
+}
 function OficinaApp() {
   const [screen, setScreen] = useState("home");
   const [step, setStep] = useState(0);
@@ -1728,6 +1838,12 @@ function OficinaApp() {
       arquivado: false
     }];
   });
+  const [gastosFixos, setGastosFixos] = useState(() => []);
+  const [gastosPorMes, setGastosPorMes] = useState(() => ({}));
+  const [caixaMovimentos, setCaixaMovimentos] = useState(() => []);
+  const hoje0 = new Date();
+  const [mesGastos, setMesGastos] = useState(hoje0.getMonth());
+  const [anoGastos, setAnoGastos] = useState(hoje0.getFullYear());
   useEffect(() => {
     carregarEstadoRemoto().then(salvo => {
       if (salvo) {
@@ -1735,15 +1851,18 @@ function OficinaApp() {
         if (salvo.configTi) setConfigTi(salvo.configTi);
         if (salvo.mecanicos) setMecanicos(salvo.mecanicos);
         if (salvo.cards && salvo.cards.length > 0) setCards(salvo.cards);
+        if (salvo.gastosFixos) setGastosFixos(salvo.gastosFixos);
+        if (salvo.gastosPorMes) setGastosPorMes(salvo.gastosPorMes);
+        if (salvo.caixaMovimentos) setCaixaMovimentos(salvo.caixaMovimentos);
       }
       setCarregando(false);
     });
   }, []);
   useEffect(() => {
     if (!carregando) {
-      salvarEstadoRemoto(cards, mecanicos, configTi, oficina);
+      salvarEstadoRemoto(cards, mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos);
     }
-  }, [cards, mecanicos, configTi, oficina, carregando]);
+  }, [cards, mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos, carregando]);
   const showToast = msg => {
     setToast(msg);
     setTimeout(() => setToast(null), 2600);
@@ -1897,7 +2016,71 @@ function OficinaApp() {
       }
     } : c));
     setPagamentoAberto(null);
+    if (forma === "Dinheiro") {
+      const cardPago = cards.find(c => c.id === id);
+      if (cardPago) {
+        setCaixaMovimentos(ms => [...ms, {
+          id: Date.now(),
+          data: new Date(),
+          tipo: "entrada",
+          valor: totalComDesconto(cardPago),
+          descricao: `Pagamento em dinheiro - ${cardPago.placa} (${cardPago.cliente})`
+        }]);
+      }
+    }
     showToast("Pagamento registrado.");
+  };
+  const chaveMes = (mes, ano) => `${ano}-${String(mes + 1).padStart(2, "0")}`;
+  const valorGastoNoMes = (gasto, mesChave) => {
+    const override = gastosPorMes[mesChave] && gastosPorMes[mesChave][gasto.id];
+    return override !== undefined && override !== null && override !== "" ? parseFloat(override) : parseFloat(gasto.valorPadrao) || 0;
+  };
+  const adicionarGastoFixo = (nome, valorPadrao) => {
+    setGastosFixos(gs => [...gs, {
+      id: Date.now(),
+      nome,
+      valorPadrao
+    }]);
+    showToast("Gasto fixo adicionado.");
+  };
+  const removerGastoFixo = id => {
+    setGastosFixos(gs => gs.filter(g => g.id !== id));
+    showToast("Gasto fixo removido.");
+  };
+  const editarValorGastoMes = (gastoId, mesChave, valor) => {
+    setGastosPorMes(gp => ({
+      ...gp,
+      [mesChave]: {
+        ...(gp[mesChave] || {}),
+        [gastoId]: valor
+      }
+    }));
+  };
+  const adicionarMovimentoCaixa = (tipo, valor, descricao) => {
+    setCaixaMovimentos(ms => [...ms, {
+      id: Date.now(),
+      data: new Date(),
+      tipo,
+      valor: parseFloat(valor) || 0,
+      descricao
+    }]);
+    showToast("Movimento de caixa registrado.");
+  };
+  const removerMovimentoCaixa = id => {
+    setCaixaMovimentos(ms => ms.filter(m => m.id !== id));
+    showToast("Movimento de caixa removido.");
+  };
+  const mesGastosAnterior = () => {
+    if (mesGastos === 0) {
+      setMesGastos(11);
+      setAnoGastos(a => a - 1);
+    } else setMesGastos(m => m - 1);
+  };
+  const mesGastosProximo = () => {
+    if (mesGastos === 11) {
+      setMesGastos(0);
+      setAnoGastos(a => a + 1);
+    } else setMesGastos(m => m + 1);
   };
   const atualizarCard = (id, campos) => {
     setCards(cs => cs.map(c => c.id === id ? {
@@ -2340,9 +2523,14 @@ function OficinaApp() {
       const intervalo = calcularIntervalo(periodoPreset, mesEscolhido, anoEscolhido);
       const cardsNoPeriodo = cards.filter(c => dentroDoIntervalo(c.dataEntrada, intervalo));
       const totalMes = cardsNoPeriodo.filter(c => c.pagamento.status === "pago").reduce((s, c) => s + totalComDesconto(c), 0);
-      const totalAReceber = cardsNoPeriodo.filter(c => c.pagamento.status === "pendente").reduce((s, c) => s + totalComDesconto(c), 0);
+      const pendentesTodos = [...cards].filter(c => c.pagamento.status === "pendente").sort((a, b) => a.dataEntrada - b.dataEntrada);
+      const totalAReceber = pendentesTodos.reduce((s, c) => s + totalComDesconto(c), 0);
       const finalizadosMes = cardsNoPeriodo.filter(c => c.coluna === "pronto").length;
       const ordenados = [...cardsNoPeriodo].sort((a, b) => b.dataEntrada - a.dataEntrada);
+      const chaveMesGastos = chaveMes(mesGastos, anoGastos);
+      const totalGastosFixosMes = gastosFixos.reduce((s, g) => s + valorGastoNoMes(g, chaveMesGastos), 0);
+      const saldoCaixa = caixaMovimentos.reduce((s, m) => s + (m.tipo === "entrada" ? m.valor : -m.valor), 0);
+      const movimentosCaixaOrdenados = [...caixaMovimentos].sort((a, b) => b.data - a.data);
       const relatorioMecanicos = mecanicos.map(m => {
         const itensDoMes = cardsNoPeriodo.flatMap(c => c.itens.filter(it => it.mecanico === m));
         const totalMaoDeObra = itensDoMes.reduce((s, it) => s + (parseFloat(it.valorMaoDeObra) || 0), 0);
@@ -2484,7 +2672,7 @@ function OficinaApp() {
         style: {
           color: TOKENS.warn
         }
-      }, "A receber ", rotuloPeriodo), /*#__PURE__*/React.createElement("div", {
+      }, "A receber (todos os períodos)"), /*#__PURE__*/React.createElement("div", {
         className: "text-xl font-extrabold",
         style: {
           color: TOKENS.warn
@@ -2505,7 +2693,245 @@ function OficinaApp() {
         style: {
           color: TOKENS.accentDark
         }
-      }, finalizadosMes))), /*#__PURE__*/React.createElement("div", {
+      }, finalizadosMes))), pendentesTodos.length > 0 && /*#__PURE__*/React.createElement("div", {
+        className: "rounded-xl p-4 mb-6",
+        style: {
+          background: TOKENS.warnSoft,
+          border: `2px solid ${TOKENS.warn}`
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center gap-2 mb-3"
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "ShieldAlert",
+        size: 18,
+        color: TOKENS.warn
+      }), /*#__PURE__*/React.createElement("span", {
+        className: "font-bold text-sm",
+        style: {
+          color: TOKENS.warn
+        }
+      }, "Pagamentos pendentes — todos os períodos (", pendentesTodos.length, ")")), /*#__PURE__*/React.createElement("div", {
+        className: "flex flex-col gap-2"
+      }, pendentesTodos.map(c => /*#__PURE__*/React.createElement("div", {
+        key: c.id,
+        className: "flex items-center justify-between flex-wrap gap-2 rounded-lg px-3 py-2",
+        style: {
+          background: "#fff",
+          border: `1px solid ${TOKENS.warn}`
+        }
+      }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+        className: "text-xs font-bold px-2 py-0.5 rounded mr-2",
+        style: {
+          background: TOKENS.plateBlue,
+          color: "#fff",
+          fontFamily: "monospace"
+        }
+      }, c.placa), /*#__PURE__*/React.createElement("span", {
+        className: "font-semibold text-sm",
+        style: {
+          color: TOKENS.ink
+        }
+      }, c.cliente), /*#__PURE__*/React.createElement("span", {
+        className: "text-xs ml-2",
+        style: {
+          color: TOKENS.inkSoft
+        }
+      }, "entrada ", formatDate(c.dataEntrada))), /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center gap-2"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "font-extrabold text-sm",
+        style: {
+          color: TOKENS.warn
+        }
+      }, "R$ ", totalComDesconto(c).toFixed(2)), pagamentoAberto === c.id ? /*#__PURE__*/React.createElement("div", {
+        className: "flex gap-1"
+      }, FORMAS_PAGAMENTO.map(f => /*#__PURE__*/React.createElement("button", {
+        key: f,
+        onClick: () => marcarPagamento(c.id, f),
+        className: "text-xs font-bold px-2 py-1 rounded-lg",
+        style: {
+          background: TOKENS.accent,
+          color: "#fff"
+        }
+      }, f))) : /*#__PURE__*/React.createElement("button", {
+        onClick: () => setPagamentoAberto(c.id),
+        className: "text-xs font-bold px-2 py-1 rounded-lg",
+        style: {
+          background: TOKENS.accent,
+          color: "#fff"
+        }
+      }, "Marcar como pago")))))), /*#__PURE__*/React.createElement("div", {
+        className: "rounded-xl p-4 mb-6",
+        style: {
+          background: "#fff",
+          border: `2px solid ${TOKENS.border}`
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center justify-between mb-3 flex-wrap gap-2"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "font-bold text-sm flex items-center gap-2",
+        style: {
+          color: TOKENS.ink
+        }
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "Wallet",
+        size: 16,
+        color: TOKENS.accent
+      }), " Gastos fixos"), /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center gap-2"
+      }, /*#__PURE__*/React.createElement("button", {
+        onClick: mesGastosAnterior,
+        className: "p-1.5 rounded-lg",
+        style: {
+          background: TOKENS.bg
+        }
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "ArrowLeft",
+        size: 14,
+        color: TOKENS.ink
+      })), /*#__PURE__*/React.createElement("span", {
+        className: "text-sm font-semibold",
+        style: {
+          color: TOKENS.ink
+        }
+      }, NOMES_MESES[mesGastos], "/", anoGastos), /*#__PURE__*/React.createElement("button", {
+        onClick: mesGastosProximo,
+        className: "p-1.5 rounded-lg",
+        style: {
+          background: TOKENS.bg
+        }
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "ArrowRight",
+        size: 14,
+        color: TOKENS.ink
+      })))), /*#__PURE__*/React.createElement("div", {
+        className: "flex flex-col gap-2 mb-3"
+      }, gastosFixos.length === 0 && /*#__PURE__*/React.createElement("p", {
+        className: "text-xs",
+        style: {
+          color: TOKENS.inkSoft
+        }
+      }, "Nenhum gasto fixo cadastrado ainda. Adicione abaixo (ex: Luz, Água, Salário mecânico X...)."), gastosFixos.map(g => /*#__PURE__*/React.createElement("div", {
+        key: g.id,
+        className: "flex items-center justify-between gap-2 rounded-lg px-3 py-2",
+        style: {
+          background: TOKENS.bg
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-sm font-semibold flex-1",
+        style: {
+          color: TOKENS.ink
+        }
+      }, g.nome), /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center gap-1"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-xs",
+        style: {
+          color: TOKENS.inkSoft
+        }
+      }, "R$"), /*#__PURE__*/React.createElement("input", {
+        type: "number",
+        className: "w-24 rounded-lg px-2 py-1 text-sm text-right",
+        style: inputStyle,
+        value: valorGastoNoMes(g, chaveMesGastos),
+        onChange: e => editarValorGastoMes(g.id, chaveMesGastos, e.target.value)
+      })), /*#__PURE__*/React.createElement("button", {
+        onClick: () => removerGastoFixo(g.id),
+        className: "p-1.5 rounded-lg",
+        style: {
+          background: "#FBEAEA"
+        }
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "Trash2",
+        size: 13,
+        color: "#C0392B"
+      }))))), gastosFixos.length > 0 && /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center justify-between rounded-lg px-3 py-2 mb-3",
+        style: {
+          background: TOKENS.accentSoft
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-sm font-bold",
+        style: {
+          color: TOKENS.accentDark
+        }
+      }, "Total gastos fixos em ", NOMES_MESES[mesGastos], "/", anoGastos), /*#__PURE__*/React.createElement("span", {
+        className: "text-lg font-extrabold",
+        style: {
+          color: TOKENS.accentDark
+        }
+      }, "R$ ", totalGastosFixosMes.toFixed(2))), /*#__PURE__*/React.createElement(NovoGastoFixoForm, {
+        onAdd: adicionarGastoFixo
+      })), /*#__PURE__*/React.createElement("div", {
+        className: "rounded-xl p-4 mb-6",
+        style: {
+          background: "#fff",
+          border: `2px solid ${TOKENS.border}`
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center justify-between mb-3"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "font-bold text-sm flex items-center gap-2",
+        style: {
+          color: TOKENS.ink
+        }
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "Wallet",
+        size: 16,
+        color: TOKENS.accent
+      }), " Caixa"), /*#__PURE__*/React.createElement("div", {
+        className: "text-right"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "text-xs",
+        style: {
+          color: TOKENS.inkSoft
+        }
+      }, "Saldo atual em caixa"), /*#__PURE__*/React.createElement("div", {
+        className: "text-lg font-extrabold",
+        style: {
+          color: saldoCaixa >= 0 ? TOKENS.success : TOKENS.warn
+        }
+      }, "R$ ", saldoCaixa.toFixed(2)))), /*#__PURE__*/React.createElement("p", {
+        className: "text-xs mb-3",
+        style: {
+          color: TOKENS.inkSoft
+        }
+      }, "Pagamentos em dinheiro marcados como \"pago\" entram aqui automaticamente. Use o formulário abaixo pra registrar outras entradas/saídas (compra de peças, retirada, troco, etc)."), /*#__PURE__*/React.createElement(NovoMovimentoCaixaForm, {
+        onAdd: adicionarMovimentoCaixa
+      }), /*#__PURE__*/React.createElement("div", {
+        className: "flex flex-col gap-2 mt-3"
+      }, movimentosCaixaOrdenados.length === 0 && /*#__PURE__*/React.createElement("p", {
+        className: "text-xs",
+        style: {
+          color: TOKENS.inkSoft
+        }
+      }, "Nenhum movimento registrado ainda."), movimentosCaixaOrdenados.slice(0, 20).map(m => /*#__PURE__*/React.createElement("div", {
+        key: m.id,
+        className: "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm",
+        style: {
+          background: TOKENS.bg
+        }
+      }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+        className: "font-semibold",
+        style: {
+          color: m.tipo === "entrada" ? TOKENS.success : TOKENS.warn
+        }
+      }, m.tipo === "entrada" ? "+ " : "- ", "R$ ", m.valor.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+        className: "text-xs ml-2",
+        style: {
+          color: TOKENS.inkSoft
+        }
+      }, m.descricao, " · ", formatDate(m.data))), /*#__PURE__*/React.createElement("button", {
+        onClick: () => removerMovimentoCaixa(m.id),
+        className: "p-1.5 rounded-lg",
+        style: {
+          background: "#FBEAEA"
+        }
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "Trash2",
+        size: 13,
+        color: "#C0392B"
+      })))))), /*#__PURE__*/React.createElement("div", {
         className: "rounded-xl p-4 mb-6",
         style: {
           background: "#fff",
