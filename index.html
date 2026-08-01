@@ -687,7 +687,8 @@ function DetalheModal({
   onDownload,
   onSendEmail,
   onSendWhatsapp,
-  onUpdateCard
+  onUpdateCard,
+  onConfirmarPagamento
 }) {
   const [novo, setNovo] = useState({
     nome: "",
@@ -1164,7 +1165,32 @@ function DetalheModal({
   }, Object.keys(TAXAS_PARCELAMENTO).map(n => /*#__PURE__*/React.createElement("option", {
     key: n,
     value: n
-  }, n, "x · taxa ", TAXAS_PARCELAMENTO[n].toFixed(2).replace(".", ","), "%")))), /*#__PURE__*/React.createElement("div", {
+  }, n, "x · taxa ", TAXAS_PARCELAMENTO[n].toFixed(2).replace(".", ","), "%")))), card.pagamento.status === "pago" ? /*#__PURE__*/React.createElement("div", {
+    className: "rounded-xl px-4 py-3 mb-4 flex items-center gap-2",
+    style: {
+      background: TOKENS.successSoft,
+      border: `1px solid ${TOKENS.success}`
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "CheckCircle2",
+    size: 16,
+    color: TOKENS.success
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "text-sm font-bold",
+    style: {
+      color: TOKENS.success
+    }
+  }, "Pago via ", card.pagamento.forma, " em ", formatDate(card.pagamento.data))) : /*#__PURE__*/React.createElement("button", {
+    onClick: () => onConfirmarPagamento(formaPagamento.tipo),
+    className: "w-full rounded-xl py-3 mb-4 font-bold flex items-center justify-center gap-2",
+    style: {
+      background: TOKENS.success,
+      color: "#fff"
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "Check",
+    size: 18
+  }), " Confirmar pagamento (", formaPagamento.tipo, ")"), /*#__PURE__*/React.createElement("div", {
     className: "text-xs mb-2 font-semibold flex items-center gap-2",
     style: {
       color: TOKENS.inkSoft
@@ -1475,10 +1501,8 @@ function CardMini({
   onOpen,
   onVoltar,
   onAvancar,
-  onArquivar,
-  onConfirmarPagamento
+  onArquivar
 }) {
-  const [formaEscolhida, setFormaEscolhida] = useState(null);
   return /*#__PURE__*/React.createElement("div", {
     className: "rounded-xl p-3 cursor-pointer",
     style: {
@@ -1525,13 +1549,13 @@ function CardMini({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "Clock",
     size: 12
-  }), " ", formatDuracao(c.dataEntrada, c.dataFinalizacao)), c.previsaoEntrega && /*#__PURE__*/React.createElement("span", null, "· previsão ", formatDate(c.previsaoEntrega))), isPronto && c.pagamento.status !== "pago" && /*#__PURE__*/React.createElement("div", {
+  }), " ", formatDuracao(c.dataEntrada, c.dataFinalizacao)), c.previsaoEntrega && /*#__PURE__*/React.createElement("span", null, "· previsão ", formatDate(c.previsaoEntrega))), isPronto && /*#__PURE__*/React.createElement("div", {
     className: "text-xs mb-2 font-bold",
     style: {
-      color: TOKENS.warn
+      color: c.pagamento.status === "pago" ? TOKENS.success : TOKENS.warn
     }
-  }, "Aguardando pagamento"), /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-2 flex-wrap",
+  }, c.pagamento.status === "pago" ? "Pago — abra o card pra concluir" : "Aguardando pagamento — abra o card pra confirmar"), /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2",
     onClick: e => e.stopPropagation()
   }, /*#__PURE__*/React.createElement("button", {
     onClick: onVoltar,
@@ -1546,37 +1570,17 @@ function CardMini({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "ArrowLeft",
     size: 14
-  }), " Voltar"), isPronto ? c.pagamento.status === "pago" ? /*#__PURE__*/React.createElement("button", {
-    onClick: onArquivar,
+  }), " Voltar"), isPronto ? /*#__PURE__*/React.createElement("button", {
+    onClick: onOpen,
     className: "flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded-lg flex-1 justify-center",
     style: {
-      background: TOKENS.success,
+      background: TOKENS.accent,
       color: "#fff"
     }
   }, /*#__PURE__*/React.createElement(Icon, {
-    name: "Check",
+    name: "Eye",
     size: 14
-  }), " Concluir e tirar do painel") : !formaEscolhida ? /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-1 flex-1 flex-wrap"
-  }, FORMAS_PAGAMENTO.map(f => /*#__PURE__*/React.createElement("button", {
-    key: f,
-    onClick: () => setFormaEscolhida(f),
-    className: "text-xs font-bold px-2 py-1.5 rounded-lg flex-1",
-    style: {
-      background: TOKENS.accentSoft,
-      color: TOKENS.accentDark
-    }
-  }, f))) : /*#__PURE__*/React.createElement("button", {
-    onClick: () => onConfirmarPagamento(formaEscolhida),
-    className: "flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded-lg flex-1 justify-center",
-    style: {
-      background: TOKENS.success,
-      color: "#fff"
-    }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "Check",
-    size: 14
-  }), " Confirmar pagamento (", formaEscolhida, ")") : /*#__PURE__*/React.createElement("button", {
+  }), " Abrir card") : /*#__PURE__*/React.createElement("button", {
     onClick: onAvancar,
     className: "flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded-lg flex-1 justify-center",
     style: {
@@ -2349,8 +2353,7 @@ function OficinaApp() {
         onOpen: () => setDetalheId(c.id),
         onVoltar: () => voltarStatus(c.id),
         onAvancar: () => avancarStatus(c.id),
-        onArquivar: () => arquivarCard(c.id),
-        onConfirmarPagamento: forma => confirmarPagamentoEArquivar(c.id, forma)
+        onArquivar: () => arquivarCard(c.id)
       });
     }))))), /*#__PURE__*/React.createElement("div", {
       className: "flex md:hidden flex-col gap-3"
@@ -2421,8 +2424,7 @@ function OficinaApp() {
       onOpen: () => setDetalheId(c.id),
       onVoltar: () => voltarStatus(c.id),
       onAvancar: () => avancarStatus(c.id),
-      onArquivar: () => arquivarCard(c.id),
-      onConfirmarPagamento: forma => confirmarPagamentoEArquivar(c.id, forma)
+      onArquivar: () => arquivarCard(c.id)
     })), cards.filter(c => c.coluna === COLUMNS[colunaMobileIndex].key && !c.arquivado).length === 0 && /*#__PURE__*/React.createElement("p", {
       className: "text-xs text-center py-8",
       style: {
@@ -2490,7 +2492,11 @@ function OficinaApp() {
         total: totalComDesconto(cardDetalhe),
         oficina
       })), "_blank"),
-      onUpdateCard: campos => atualizarCard(cardDetalhe.id, campos)
+      onUpdateCard: campos => atualizarCard(cardDetalhe.id, campos),
+      onConfirmarPagamento: forma => {
+        if (cardDetalhe.coluna === "pronto") confirmarPagamentoEArquivar(cardDetalhe.id, forma);else marcarPagamento(cardDetalhe.id, forma);
+        setDetalheId(null);
+      }
     }), toast && /*#__PURE__*/React.createElement(Toast, {
       message: toast
     }));
