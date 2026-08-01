@@ -2608,17 +2608,19 @@ function OficinaApp() {
     } else {
       const intervalo = calcularIntervalo(periodoPreset, mesEscolhido, anoEscolhido);
       const cardsNoPeriodo = cards.filter(c => dentroDoIntervalo(c.dataEntrada, intervalo));
-      const totalMes = cardsNoPeriodo.filter(c => c.pagamento.status === "pago").reduce((s, c) => s + totalComDesconto(c), 0);
+      const cardsPagosNoPeriodo = cards.filter(c => c.pagamento.status === "pago" && c.pagamento.data && dentroDoIntervalo(c.pagamento.data, intervalo));
+      const totalMes = cardsPagosNoPeriodo.reduce((s, c) => s + totalComDesconto(c), 0);
       const pendentesTodos = [...cards].filter(c => c.pagamento.status === "pendente").sort((a, b) => a.dataEntrada - b.dataEntrada);
       const totalAReceber = pendentesTodos.reduce((s, c) => s + totalComDesconto(c), 0);
-      const finalizadosMes = cardsNoPeriodo.filter(c => c.coluna === "pronto").length;
+      const finalizadosMes = cards.filter(c => c.dataFinalizacao && dentroDoIntervalo(c.dataFinalizacao, intervalo)).length;
       const ordenados = [...cardsNoPeriodo].sort((a, b) => b.dataEntrada - a.dataEntrada);
+      const arquivadosTodos = [...cards].filter(c => c.arquivado).sort((a, b) => (b.dataFinalizacao || b.dataEntrada) - (a.dataFinalizacao || a.dataEntrada));
       const chaveMesGastos = chaveMes(mesGastos, anoGastos);
       const totalGastosFixosMes = gastosFixos.reduce((s, g) => s + valorGastoNoMes(g, chaveMesGastos), 0);
       const saldoCaixa = caixaMovimentos.reduce((s, m) => s + (m.tipo === "entrada" ? m.valor : -m.valor), 0);
       const movimentosCaixaOrdenados = [...caixaMovimentos].sort((a, b) => b.data - a.data);
       const relatorioMecanicos = mecanicos.map(m => {
-        const itensDoMes = cardsNoPeriodo.flatMap(c => c.itens.filter(it => it.mecanico === m));
+        const itensDoMes = cardsPagosNoPeriodo.flatMap(c => c.itens.filter(it => it.mecanico === m));
         const totalMaoDeObra = itensDoMes.reduce((s, it) => s + (parseFloat(it.valorMaoDeObra) || 0), 0);
         const totalGeral = itensDoMes.reduce((s, it) => s + itemTotal(it), 0);
         return {
@@ -2846,7 +2848,59 @@ function OficinaApp() {
           background: TOKENS.accent,
           color: "#fff"
         }
-      }, "Marcar como pago")))))), /*#__PURE__*/React.createElement("div", {
+      }, "Marcar como pago")))))), arquivadosTodos.length > 0 && /*#__PURE__*/React.createElement("div", {
+        className: "rounded-xl p-4 mb-6",
+        style: {
+          background: "#fff",
+          border: `2px solid ${TOKENS.border}`
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center gap-2 mb-3"
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "ClipboardList",
+        size: 18,
+        color: TOKENS.inkSoft
+      }), /*#__PURE__*/React.createElement("span", {
+        className: "font-bold text-sm",
+        style: {
+          color: TOKENS.ink
+        }
+      }, "Carros tirados do painel — todos os períodos (", arquivadosTodos.length, ")")), /*#__PURE__*/React.createElement("div", {
+        className: "flex flex-col gap-2"
+      }, arquivadosTodos.map(c => /*#__PURE__*/React.createElement("div", {
+        key: c.id,
+        className: "flex items-center justify-between flex-wrap gap-2 rounded-lg px-3 py-2",
+        style: {
+          background: TOKENS.bg
+        }
+      }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+        className: "text-xs font-bold px-2 py-0.5 rounded mr-2",
+        style: {
+          background: TOKENS.plateBlue,
+          color: "#fff",
+          fontFamily: "monospace"
+        }
+      }, c.placa), /*#__PURE__*/React.createElement("span", {
+        className: "font-semibold text-sm",
+        style: {
+          color: TOKENS.ink
+        }
+      }, c.cliente), /*#__PURE__*/React.createElement("span", {
+        className: "text-xs ml-2",
+        style: {
+          color: TOKENS.inkSoft
+        }
+      }, c.pagamento.status === "pago" ? `pago ${formatDate(c.pagamento.data)}` : "pagamento pendente")), /*#__PURE__*/React.createElement("button", {
+        onClick: () => desarquivarCard(c.id),
+        className: "flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg",
+        style: {
+          background: TOKENS.accent,
+          color: "#fff"
+        }
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "ArrowLeft",
+        size: 14
+      }), " Voltar pro painel"))))), /*#__PURE__*/React.createElement("div", {
         className: "rounded-xl p-4 mb-6",
         style: {
           background: "#fff",
@@ -3193,28 +3247,7 @@ function OficinaApp() {
           style: {
             color: "#C0392B"
           }
-        }, "Senha incorreta, tente de novo.")), c.arquivado && /*#__PURE__*/React.createElement("div", {
-          className: "rounded-lg p-3 mb-3 flex flex-wrap items-center justify-between gap-2",
-          style: {
-            background: TOKENS.bg,
-            border: `1px dashed ${TOKENS.border}`
-          }
-        }, /*#__PURE__*/React.createElement("span", {
-          className: "text-xs font-semibold",
-          style: {
-            color: TOKENS.inkSoft
-          }
-        }, "Esse carro já foi tirado do painel. Confirmou pagamento por engano ou fechou antes da hora? Isso volta o carro pro painel e desfaz o pagamento (fica pendente de novo)."), /*#__PURE__*/React.createElement("button", {
-          onClick: () => desarquivarCard(c.id),
-          className: "flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg",
-          style: {
-            background: TOKENS.accent,
-            color: "#fff"
-          }
-        }, /*#__PURE__*/React.createElement(Icon, {
-          name: "ArrowLeft",
-          size: 14
-        }), " Voltar pro painel")), /*#__PURE__*/React.createElement("div", {
+        }, "Senha incorreta, tente de novo.")), /*#__PURE__*/React.createElement("div", {
           className: "flex flex-wrap gap-2 mb-3"
         }, c.itens.map((it, i) => /*#__PURE__*/React.createElement("span", {
           key: i,
