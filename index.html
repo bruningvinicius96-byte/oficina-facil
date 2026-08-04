@@ -100,11 +100,11 @@ function Icon({
 }
 const db = firebase.firestore();
 const DOC_REF = db.collection("oficina").doc("dados");
-async function salvarEstadoRemoto(cards, mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos) {
+const CARDS_REF = db.collection("oficina_cards");
+async function salvarEstadoRemoto(mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos) {
   try {
     await DOC_REF.set({
       json: JSON.stringify({
-        cards,
         mecanicos,
         configTi,
         oficina,
@@ -119,33 +119,62 @@ async function salvarEstadoRemoto(cards, mecanicos, configTi, oficina, gastosFix
   }
 }
 function reidratarDatas(data) {
-  data.cards = (data.cards || []).map(c => ({
-    ...c,
-    dataEntrada: new Date(c.dataEntrada),
-    dataFinalizacao: c.dataFinalizacao ? new Date(c.dataFinalizacao) : null,
-    previsaoEntrega: c.previsaoEntrega ? new Date(c.previsaoEntrega) : null,
-    garantiaAte: c.garantiaAte ? new Date(c.garantiaAte) : null,
-    pagamento: {
-      ...c.pagamento,
-      data: c.pagamento.data ? new Date(c.pagamento.data) : null
-    }
-  }));
   data.caixaMovimentos = (data.caixaMovimentos || []).map(m => ({
     ...m,
     data: new Date(m.data)
   }));
   return data;
 }
-async function carregarEstadoRemoto() {
+function ouvirEstadoRemoto(callback) {
+  return DOC_REF.onSnapshot({
+    includeMetadataChanges: true
+  }, doc => {
+    if (doc.metadata.hasPendingWrites) return;
+    if (!doc.exists || !doc.data() || !doc.data().json) return;
+    try {
+      const data = JSON.parse(doc.data().json);
+      callback(reidratarDatas(data));
+    } catch (e) {
+      console.error("Erro ao processar dados da nuvem:", e);
+    }
+  }, err => console.error("Erro ao ouvir mudanças na nuvem:", err));
+}
+function reidratarCard(c) {
+  const toDate = v => v ? v.toDate ? v.toDate() : new Date(v) : null;
+  return {
+    ...c,
+    dataEntrada: toDate(c.dataEntrada) || new Date(),
+    dataFinalizacao: toDate(c.dataFinalizacao),
+    previsaoEntrega: toDate(c.previsaoEntrega),
+    garantiaAte: toDate(c.garantiaAte),
+    pagamento: {
+      ...c.pagamento,
+      data: toDate(c.pagamento && c.pagamento.data)
+    }
+  };
+}
+async function salvarCardRemoto(card) {
   try {
-    const doc = await DOC_REF.get();
-    if (!doc.exists || !doc.data() || !doc.data().json) return null;
-    const data = JSON.parse(doc.data().json);
-    return reidratarDatas(data);
+    await CARDS_REF.doc(String(card.id)).set(card);
   } catch (e) {
-    console.error("Erro ao carregar da nuvem:", e);
-    return null;
+    console.error("Erro ao salvar carro na nuvem:", e);
   }
+}
+async function excluirCardRemoto(id) {
+  try {
+    await CARDS_REF.doc(String(id)).delete();
+  } catch (e) {
+    console.error("Erro ao excluir carro da nuvem:", e);
+  }
+}
+function ouvirCardsRemoto(callback) {
+  return CARDS_REF.onSnapshot({
+    includeMetadataChanges: true
+  }, snapshot => {
+    if (snapshot.metadata.hasPendingWrites) return;
+    const cards = snapshot.docs.map(doc => reidratarCard(doc.data()));
+    callback(cards);
+  }, err => console.error("Erro ao ouvir carros da nuvem:", err));
 }
 function exportarBackupJson(cards, mecanicos, configTi, oficina) {
   const payload = {
@@ -1731,6 +1760,9 @@ function OficinaApp() {
   const [senhaTi, setSenhaTi] = useState("");
   const [senhaTiErro, setSenhaTiErro] = useState(false);
   const [carregando, setCarregando] = useState(true);
+  const [configPronto, setConfigPronto] = useState(false);
+  const [cardsProntos, setCardsProntos] = useState(false);
+  const cardsRemotoRef = useRef({});
   const [oficina, setOficina] = useState(() => {
     return {
       nome: "BRÜNING AUTO MEC",
@@ -1889,24 +1921,81 @@ function OficinaApp() {
   const [mesGastos, setMesGastos] = useState(hoje0.getMonth());
   const [anoGastos, setAnoGastos] = useState(hoje0.getFullYear());
   useEffect(() => {
-    carregarEstadoRemoto().then(salvo => {
-      if (salvo) {
-        if (salvo.oficina) setOficina(salvo.oficina);
-        if (salvo.configTi) setConfigTi(salvo.configTi);
-        if (salvo.mecanicos) setMecanicos(salvo.mecanicos);
-        if (salvo.cards && salvo.cards.length > 0) setCards(salvo.cards);
-        if (salvo.gastosFixos) setGastosFixos(salvo.gastosFixos);
-        if (salvo.gastosPorMes) setGastosPorMes(salvo.gastosPorMes);
-        if (salvo.caixaMovimentos) setCaixaMovimentos(salvo.caixaMovimentos);
-      }
-      setCarregando(false);
+    const unsubscribeConfig = ouvirEstadoRemoto(salvo => {
+      if (salvo.oficina) setOficina(salvo.oficina);
+      if (salvo.configTi) setConfigTi(salvo.configTi);
+      if (salvo.mecanicos) setMecanicos(salvo.mecanicos);
+      if (salvo.gastosFixos) setGastosFixos(salvo.gastosFixos);
+      if (salvo.gastosPorMes) setGastosPorMes(salvo.gastosPorMes);
+      if (salvo.caixaMovimentos) setCaixaMovimentos(salvo.caixaMovimentos);
+      setConfigPronto(true);
     });
+    let cancelado = false;
+    let unsubscribeCards = () => {};
+    async function iniciarCards() {
+      try {
+        const snapshotAtual = await CARDS_REF.get();
+        if (snapshotAtual.empty) {
+          // Coleção nova ainda vazia: tenta migrar os carros do formato antigo (documento único) antes de semear com dados de exemplo
+          const docAntigo = await DOC_REF.get();
+          const dataAntigo = docAntigo.exists && docAntigo.data() && docAntigo.data().json ? JSON.parse(docAntigo.data().json) : null;
+          if (dataAntigo && dataAntigo.cards && dataAntigo.cards.length > 0) {
+            const migrados = dataAntigo.cards.map(c => ({
+              ...c,
+              dataEntrada: new Date(c.dataEntrada),
+              dataFinalizacao: c.dataFinalizacao ? new Date(c.dataFinalizacao) : null,
+              previsaoEntrega: c.previsaoEntrega ? new Date(c.previsaoEntrega) : null,
+              garantiaAte: c.garantiaAte ? new Date(c.garantiaAte) : null,
+              pagamento: {
+                ...(c.pagamento || {
+                  status: "pendente",
+                  forma: null
+                }),
+                data: c.pagamento && c.pagamento.data ? new Date(c.pagamento.data) : null
+              }
+            }));
+            await Promise.all(migrados.map(c => salvarCardRemoto(c)));
+          } else {
+            await Promise.all(cards.map(c => salvarCardRemoto(c)));
+          }
+        }
+      } catch (e) {
+        console.error("Erro ao preparar dados dos carros:", e);
+      }
+      if (cancelado) return;
+      unsubscribeCards = ouvirCardsRemoto(cardsRemotos => {
+        cardsRemotos.forEach(c => {
+          cardsRemotoRef.current[c.id] = JSON.stringify(c);
+        });
+        setCards(cardsRemotos);
+        setCardsProntos(true);
+      });
+    }
+    iniciarCards();
+    return () => {
+      unsubscribeConfig();
+      cancelado = true;
+      unsubscribeCards();
+    };
   }, []);
   useEffect(() => {
+    if (configPronto && cardsProntos) setCarregando(false);
+  }, [configPronto, cardsProntos]);
+  useEffect(() => {
     if (!carregando) {
-      salvarEstadoRemoto(cards, mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos);
+      salvarEstadoRemoto(mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos);
     }
-  }, [cards, mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos, carregando]);
+  }, [mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos, carregando]);
+  useEffect(() => {
+    if (!cardsProntos) return;
+    cards.forEach(c => {
+      const atualJson = JSON.stringify(c);
+      if (cardsRemotoRef.current[c.id] !== atualJson) {
+        salvarCardRemoto(c);
+        cardsRemotoRef.current[c.id] = atualJson;
+      }
+    });
+  }, [cards, cardsProntos]);
   const showToast = msg => {
     setToast(msg);
     setTimeout(() => setToast(null), 2600);
@@ -2076,6 +2165,8 @@ function OficinaApp() {
   };
   const excluirCardPermanente = id => {
     setCards(cs => cs.filter(c => c.id !== id));
+    delete cardsRemotoRef.current[id];
+    excluirCardRemoto(id);
     setExcluirFinanceiroId(null);
     setSenhaExcluir("");
     setSenhaExcluirErro(false);
