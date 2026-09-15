@@ -150,15 +150,33 @@ function avisarFalhaSalvamento(mensagem) {
   }, 8000);
 }
 
+// Corre uma promessa contra um relógio: se a promessa não responder (nem sucesso
+// nem erro) dentro do prazo, tratamos como falha desta tentativa — importante
+// porque uma gravação "pendurada" por rede instável nunca rejeitaria sozinha,
+// e a tela ficaria "salvando..." para sempre.
+function comLimiteDeTempo(promessa, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`Sem resposta do servidor em ${ms / 1000}s`)), ms);
+    promessa.then(v => {
+      clearTimeout(t);
+      resolve(v);
+    }, e => {
+      clearTimeout(t);
+      reject(e);
+    });
+  });
+}
+
 // Tenta gravar no Firestore com novas tentativas automáticas (espera crescente
 // entre elas) antes de desistir. Só retorna sucesso quando o Firebase realmente
-// confirmou a gravação — nunca "finge" que salvou.
+// confirmou a gravação — nunca "finge" que salvou. Cada tentativa tem um prazo
+// máximo, então isso NUNCA fica pendurado indefinidamente.
 async function gravarComRetentativa(operacao, descricaoErro, tentativas = 4) {
   alterarPendencias(1);
   try {
     for (let i = 0; i < tentativas; i++) {
       try {
-        await operacao();
+        await comLimiteDeTempo(operacao(), 8000);
         return true;
       } catch (e) {
         console.error(`${descricaoErro} (tentativa ${i + 1}/${tentativas}):`, e);
@@ -167,7 +185,7 @@ async function gravarComRetentativa(operacao, descricaoErro, tentativas = 4) {
         }
       }
     }
-    avisarFalhaSalvamento(`Não foi possível salvar: ${descricaoErro}. Verifique a internet — vamos tentar de novo.`);
+    avisarFalhaSalvamento(`Não foi possível salvar: ${descricaoErro}. Verifique a internet — vamos tentar de novo em instantes.`);
     return false;
   } finally {
     alterarPendencias(-1);
