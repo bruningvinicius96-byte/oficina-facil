@@ -102,7 +102,7 @@ const db = firebase.firestore();
 // Nunca rejeita uma gravação por causa de um campo "undefined" perdido no
 // objeto (o SDK do Firestore, por padrão, recusa a gravação inteira nesse
 // caso) — em vez disso, esses campos são simplesmente ignorados.
-db.settings({ ignoreUndefinedProperties: true });
+db.settings({ ignoreUndefinedProperties: true, merge: true });
 const DOC_REF = db.collection("oficina").doc("dados");
 const CARDS_REF = db.collection("oficina_cards");
 
@@ -2035,13 +2035,21 @@ function OficinaApp() {
   const [mesGastos, setMesGastos] = useState(hoje0.getMonth());
   const [anoGastos, setAnoGastos] = useState(hoje0.getFullYear());
   useEffect(() => {
+    // Importante: só troca o estado se o conteúdo realmente for diferente do
+    // que já está na tela (comparando por valor, não por referência). Sem
+    // isso, receber de volta os mesmos dados já cria objetos "novos" a cada
+    // vez, o que disparava o salvamento de novo, que disparava o recebimento
+    // de novo, para sempre — um laço interminável que já existia escondido
+    // no app e agora, com o aviso de salvamento visível, aparecia piscando
+    // sem parar mesmo sem ninguém mexer em nada.
+    const seMudou = (atual, novo) => jsonEstavel(atual) === jsonEstavel(novo) ? atual : novo;
     const unsubscribeConfig = ouvirEstadoRemoto(salvo => {
-      if (salvo.oficina) setOficina(salvo.oficina);
-      if (salvo.configTi) setConfigTi(salvo.configTi);
-      if (salvo.mecanicos) setMecanicos(salvo.mecanicos);
-      if (salvo.gastosFixos) setGastosFixos(salvo.gastosFixos);
-      if (salvo.gastosPorMes) setGastosPorMes(salvo.gastosPorMes);
-      if (salvo.caixaMovimentos) setCaixaMovimentos(salvo.caixaMovimentos);
+      if (salvo.oficina) setOficina(atual => seMudou(atual, salvo.oficina));
+      if (salvo.configTi) setConfigTi(atual => seMudou(atual, salvo.configTi));
+      if (salvo.mecanicos) setMecanicos(atual => seMudou(atual, salvo.mecanicos));
+      if (salvo.gastosFixos) setGastosFixos(atual => seMudou(atual, salvo.gastosFixos));
+      if (salvo.gastosPorMes) setGastosPorMes(atual => seMudou(atual, salvo.gastosPorMes));
+      if (salvo.caixaMovimentos) setCaixaMovimentos(atual => seMudou(atual, salvo.caixaMovimentos));
       setConfigPronto(true);
     });
     let cancelado = false;
