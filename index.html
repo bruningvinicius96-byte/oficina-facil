@@ -167,26 +167,42 @@ function comLimiteDeTempo(promessa, ms) {
   });
 }
 
+// Fila: garante que só existe UMA gravação em andamento no Firestore por vez.
+// Isso é essencial — se várias gravações forem disparadas em paralelo (vários
+// cards mudando perto um do outro, mais as novas tentativas automáticas), a
+// fila interna do próprio Firestore no navegador pode estourar
+// ("resource-exhausted: Write stream exhausted maximum allowed queued
+// writes"), o que trava tudo. Enfileirando uma de cada vez, isso nunca acontece.
+let filaDeGravacoes = Promise.resolve();
+function enfileirarGravacao(tarefa) {
+  const resultado = filaDeGravacoes.then(tarefa, tarefa);
+  filaDeGravacoes = resultado.catch(() => {});
+  return resultado;
+}
+
 // Tenta gravar no Firestore com novas tentativas automáticas (espera crescente
 // entre elas) antes de desistir. Só retorna sucesso quando o Firebase realmente
 // confirmou a gravação — nunca "finge" que salvou. Cada tentativa tem um prazo
-// máximo, então isso NUNCA fica pendurado indefinidamente.
+// máximo, então isso NUNCA fica pendurado indefinidamente, e tudo passa pela
+// fila acima, uma gravação de cada vez.
 async function gravarComRetentativa(operacao, descricaoErro, tentativas = 4) {
   alterarPendencias(1);
   try {
-    for (let i = 0; i < tentativas; i++) {
-      try {
-        await comLimiteDeTempo(operacao(), 8000);
-        return true;
-      } catch (e) {
-        console.error(`${descricaoErro} (tentativa ${i + 1}/${tentativas}):`, e);
-        if (i < tentativas - 1) {
-          await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
+    return await enfileirarGravacao(async () => {
+      for (let i = 0; i < tentativas; i++) {
+        try {
+          await comLimiteDeTempo(operacao(), 8000);
+          return true;
+        } catch (e) {
+          console.error(`${descricaoErro} (tentativa ${i + 1}/${tentativas}):`, e);
+          if (i < tentativas - 1) {
+            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
+          }
         }
       }
-    }
-    avisarFalhaSalvamento(`Não foi possível salvar: ${descricaoErro}. Verifique a internet — vamos tentar de novo em instantes.`);
-    return false;
+      avisarFalhaSalvamento(`Não foi possível salvar: ${descricaoErro}. Verifique a internet — vamos tentar de novo em instantes.`);
+      return false;
+    });
   } finally {
     alterarPendencias(-1);
   }
