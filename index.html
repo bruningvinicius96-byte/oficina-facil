@@ -99,8 +99,26 @@ function Icon({
   }, ICONS[name] || "•");
 }
 const db = firebase.firestore();
+// Nunca rejeita uma gravação por causa de um campo "undefined" perdido no
+// objeto (o SDK do Firestore, por padrão, recusa a gravação inteira nesse
+// caso) — em vez disso, esses campos são simplesmente ignorados.
+db.settings({ ignoreUndefinedProperties: true });
 const DOC_REF = db.collection("oficina").doc("dados");
 const CARDS_REF = db.collection("oficina_cards");
+
+// Serializa um objeto de forma sempre igual, não importa a ordem dos campos.
+// O Firestore NÃO garante devolver os campos na mesma ordem em que foram
+// salvos — então comparar com JSON.stringify comum faz o app achar que um
+// card "mudou" mesmo quando só a ordem dos campos é diferente, disparando
+// gravações sem necessidade (e, no limite, sem parar nunca).
+function jsonEstavel(valor) {
+  if (Array.isArray(valor)) return `[${valor.map(jsonEstavel).join(",")}]`;
+  if (valor && typeof valor === "object" && !(valor instanceof Date)) {
+    const chaves = Object.keys(valor).sort();
+    return `{${chaves.map(k => `${JSON.stringify(k)}:${jsonEstavel(valor[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(valor);
+}
 
 // ====== CONTROLE DE SALVAMENTO CONFIÁVEL ======
 // Conta quantas gravações estão em andamento (ainda não confirmadas pelo Firebase).
@@ -2061,7 +2079,7 @@ function OficinaApp() {
       if (cancelado) return;
       unsubscribeCards = ouvirCardsRemoto(cardsRemotos => {
         cardsRemotos.forEach(c => {
-          cardsRemotoRef.current[c.id] = JSON.stringify(c);
+          cardsRemotoRef.current[c.id] = jsonEstavel(c);
         });
         setCards(cardsRemotos);
         setCardsProntos(true);
@@ -2085,9 +2103,13 @@ function OficinaApp() {
   const sincronizarCardsPendentes = () => {
     if (!cardsProntos) return;
     cards.forEach(c => {
-      const atualJson = JSON.stringify(c);
+      const atualJson = jsonEstavel(c);
       if (cardsRemotoRef.current[c.id] === atualJson) return;
       if (cardsEnviandoRef.current[c.id] === atualJson) return;
+      console.log("[oficina] card fora de sincronia, reenviando:", c.id, c.placa, {
+        antes: cardsRemotoRef.current[c.id],
+        agora: atualJson
+      });
       cardsEnviandoRef.current[c.id] = atualJson;
       salvarCardRemoto(c).then(ok => {
         if (cardsEnviandoRef.current[c.id] === atualJson) delete cardsEnviandoRef.current[c.id];
