@@ -101,22 +101,91 @@ function Icon({
 const db = firebase.firestore();
 const DOC_REF = db.collection("oficina").doc("dados");
 const CARDS_REF = db.collection("oficina_cards");
-async function salvarEstadoRemoto(mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos) {
-  try {
-    await DOC_REF.set({
-      json: JSON.stringify({
-        mecanicos,
-        configTi,
-        oficina,
-        gastosFixos,
-        gastosPorMes,
-        caixaMovimentos
-      }),
-      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
-    });
-  } catch (e) {
-    console.error("Erro ao salvar na nuvem:", e);
+
+// ====== CONTROLE DE SALVAMENTO CONFIÁVEL ======
+// Conta quantas gravações estão em andamento (ainda não confirmadas pelo Firebase).
+// Enquanto houver alguma pendente, avisamos o usuário antes de fechar a aba,
+// e mostramos um aviso visível se alguma gravação falhar de verdade.
+let pendenciasSalvamento = 0;
+function alterarPendencias(delta) {
+  pendenciasSalvamento = Math.max(0, pendenciasSalvamento + delta);
+  atualizarAvisoSalvamento();
+}
+window.addEventListener("beforeunload", function (e) {
+  if (pendenciasSalvamento > 0) {
+    e.preventDefault();
+    e.returnValue = "Ainda há alterações sendo salvas. Se sair agora, pode perder dados.";
+    return e.returnValue;
   }
+});
+
+let avisoSalvamentoEl = null;
+function garantirAvisoSalvamentoEl() {
+  if (avisoSalvamentoEl) return avisoSalvamentoEl;
+  const el = document.createElement("div");
+  el.id = "aviso-salvamento";
+  el.style.cssText = "position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;padding:10px 18px;border-radius:10px;font:600 13px Inter,sans-serif;color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.25);display:none;max-width:92vw;text-align:center;";
+  document.body.appendChild(el);
+  avisoSalvamentoEl = el;
+  return el;
+}
+function atualizarAvisoSalvamento() {
+  const el = garantirAvisoSalvamentoEl();
+  if (pendenciasSalvamento > 0) {
+    el.style.background = "#2563eb";
+    el.textContent = "Salvando alterações na nuvem, não feche esta aba…";
+    el.style.display = "block";
+  } else {
+    el.style.display = "none";
+  }
+}
+function avisarFalhaSalvamento(mensagem) {
+  const el = garantirAvisoSalvamentoEl();
+  el.style.background = "#dc2626";
+  el.textContent = mensagem;
+  el.style.display = "block";
+  clearTimeout(avisarFalhaSalvamento._t);
+  avisarFalhaSalvamento._t = setTimeout(() => {
+    if (pendenciasSalvamento === 0) el.style.display = "none";
+  }, 8000);
+}
+
+// Tenta gravar no Firestore com novas tentativas automáticas (espera crescente
+// entre elas) antes de desistir. Só retorna sucesso quando o Firebase realmente
+// confirmou a gravação — nunca "finge" que salvou.
+async function gravarComRetentativa(operacao, descricaoErro, tentativas = 4) {
+  alterarPendencias(1);
+  try {
+    for (let i = 0; i < tentativas; i++) {
+      try {
+        await operacao();
+        return true;
+      } catch (e) {
+        console.error(`${descricaoErro} (tentativa ${i + 1}/${tentativas}):`, e);
+        if (i < tentativas - 1) {
+          await new Promise(r => setTimeout(r, 1000 * Math.pow(2, i)));
+        }
+      }
+    }
+    avisarFalhaSalvamento(`Não foi possível salvar: ${descricaoErro}. Verifique a internet — vamos tentar de novo.`);
+    return false;
+  } finally {
+    alterarPendencias(-1);
+  }
+}
+
+async function salvarEstadoRemoto(mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos) {
+  return gravarComRetentativa(() => DOC_REF.set({
+    json: JSON.stringify({
+      mecanicos,
+      configTi,
+      oficina,
+      gastosFixos,
+      gastosPorMes,
+      caixaMovimentos
+    }),
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp()
+  }), "dados da oficina");
 }
 function reidratarDatas(data) {
   data.caixaMovimentos = (data.caixaMovimentos || []).map(m => ({
@@ -154,18 +223,10 @@ function reidratarCard(c) {
   };
 }
 async function salvarCardRemoto(card) {
-  try {
-    await CARDS_REF.doc(String(card.id)).set(card);
-  } catch (e) {
-    console.error("Erro ao salvar carro na nuvem:", e);
-  }
+  return gravarComRetentativa(() => CARDS_REF.doc(String(card.id)).set(card), `carro ${card.placa || card.id}`);
 }
 async function excluirCardRemoto(id) {
-  try {
-    await CARDS_REF.doc(String(id)).delete();
-  } catch (e) {
-    console.error("Erro ao excluir carro da nuvem:", e);
-  }
+  return gravarComRetentativa(() => CARDS_REF.doc(String(id)).delete(), `exclusão do carro ${id}`);
 }
 function ouvirCardsRemoto(callback) {
   return CARDS_REF.onSnapshot({
@@ -1763,6 +1824,7 @@ function OficinaApp() {
   const [configPronto, setConfigPronto] = useState(false);
   const [cardsProntos, setCardsProntos] = useState(false);
   const cardsRemotoRef = useRef({});
+  const cardsEnviandoRef = useRef({});
   const [oficina, setOficina] = useState(() => {
     return {
       nome: "BRÜNING AUTO MEC",
@@ -1986,15 +2048,29 @@ function OficinaApp() {
       salvarEstadoRemoto(mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos);
     }
   }, [mecanicos, configTi, oficina, gastosFixos, gastosPorMes, caixaMovimentos, carregando]);
-  useEffect(() => {
+  const sincronizarCardsPendentes = () => {
     if (!cardsProntos) return;
     cards.forEach(c => {
       const atualJson = JSON.stringify(c);
-      if (cardsRemotoRef.current[c.id] !== atualJson) {
-        salvarCardRemoto(c);
-        cardsRemotoRef.current[c.id] = atualJson;
-      }
+      if (cardsRemotoRef.current[c.id] === atualJson) return;
+      if (cardsEnviandoRef.current[c.id] === atualJson) return;
+      cardsEnviandoRef.current[c.id] = atualJson;
+      salvarCardRemoto(c).then(ok => {
+        if (cardsEnviandoRef.current[c.id] === atualJson) delete cardsEnviandoRef.current[c.id];
+        // Só marca como sincronizado se o Firebase confirmou — se falhar, o card
+        // continua "pendente" e será tentado de novo (agora, ou na próxima
+        // varredura periódica), em vez de ser dado como salvo silenciosamente.
+        if (ok) cardsRemotoRef.current[c.id] = atualJson;
+      });
     });
+  };
+  useEffect(sincronizarCardsPendentes, [cards, cardsProntos]);
+  useEffect(() => {
+    // Rede de segurança: a cada 15s, tenta de novo qualquer card que ainda não
+    // tenha sido confirmado como salvo (cobre quedas de internet passageiras
+    // sem depender de o usuário mexer de novo naquele card específico).
+    const intervalo = setInterval(sincronizarCardsPendentes, 15000);
+    return () => clearInterval(intervalo);
   }, [cards, cardsProntos]);
   const showToast = msg => {
     setToast(msg);
