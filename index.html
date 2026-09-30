@@ -8,6 +8,7 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -1409,7 +1410,7 @@ function DetalheModal({
     style: {
       color: TOKENS.inkSoft
     }
-  }, "Enviar / imprimir orçamento"), /*#__PURE__*/React.createElement("div", {
+  }, "Enviar / imprimir / baixar orçamento"), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-2 gap-2 mb-2"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: onPrint,
@@ -1433,7 +1434,7 @@ function DetalheModal({
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "Download",
     size: 16
-  }), " Baixar"), /*#__PURE__*/React.createElement("button", {
+  }), " Baixar PDF"), /*#__PURE__*/React.createElement("button", {
     onClick: onSendEmail,
     className: "flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-bold",
     style: {
@@ -2452,7 +2453,7 @@ function OficinaApp() {
     setImprimirId(id);
     setTimeout(() => window.print(), 150);
   };
-  const baixarOrcamentoCard = card => {
+  const baixarOrcamentoHtml = card => {
     const html = gerarHtmlOrcamento(card, oficina);
     const blob = new Blob([html], {
       type: "text/html;charset=utf-8;"
@@ -2463,7 +2464,35 @@ function OficinaApp() {
     a.download = `orcamento_${card.placa}.html`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast("Orçamento baixado — abra o arquivo e use Imprimir > Salvar como PDF se quiser.");
+  };
+  const baixarOrcamentoCard = async card => {
+    if (typeof window.html2pdf !== "function") {
+      baixarOrcamentoHtml(card);
+      showToast("Não foi possível gerar o PDF (sem internet?). Baixado em HTML.");
+      return;
+    }
+    try {
+      showToast("Gerando PDF...");
+      const doc = new DOMParser().parseFromString(gerarHtmlOrcamento(card, oficina), "text/html");
+      const el = document.createElement("div");
+      el.setAttribute("style", (doc.body.getAttribute("style") || "") + ";width:700px;background:#fff;");
+      el.innerHTML = doc.body.innerHTML;
+      const dataArq = new Date().toISOString().slice(0, 10);
+      const placaArq = String(card.placa || "orcamento").replace(/[^A-Za-z0-9-]/g, "");
+      await window.html2pdf().set({
+        margin: [10, 8, 10, 8],
+        filename: `orcamento_${placaArq}_${dataArq}.pdf`,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak: { mode: ["css", "legacy"], avoid: "tr" }
+      }).from(el).save();
+      showToast(`PDF baixado: orcamento_${placaArq}_${dataArq}.pdf`);
+    } catch (err) {
+      console.error("Erro ao gerar PDF", err);
+      baixarOrcamentoHtml(card);
+      showToast("Erro ao gerar o PDF. Baixado em HTML.");
+    }
   };
   const baixarNotas = listaFiltrada => {
     const base = listaFiltrada || cards;
