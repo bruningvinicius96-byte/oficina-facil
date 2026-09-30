@@ -1598,7 +1598,15 @@ function AreaImpressao({
   }, "Forma de pagamento: ", formaPagamento.tipo, formaPagamento.tipo === "Cartão parcelado" ? ` em ${formaPagamento.parcelas}x` : "")));
 }
 function gerarHtmlOrcamento(card, oficina) {
-  const subtotal = card.total;
+  const esc = v => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const brl = v => "R$ " + (Number(v) || 0).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+  const itens = (card.itens || []).filter(it => it && (it.nome && String(it.nome).trim() || itemTotal(it) > 0));
+  const totalPecas = itens.reduce((s, it) => s + (parseFloat(it.valorPeca) || 0), 0);
+  const totalMao = itens.reduce((s, it) => s + (parseFloat(it.valorMaoDeObra) || 0), 0);
+  const subtotal = totalPecas + totalMao;
   const desconto = card.desconto || {
     tipo: "percentual",
     valor: 0
@@ -1608,45 +1616,84 @@ function gerarHtmlOrcamento(card, oficina) {
     tipo: "Dinheiro",
     parcelas: 1
   };
-  const jurosRS = valorJurosParcelamento(subtotal - descontoRS, formaPagamento);
-  const totalFinal = totalComDesconto(card);
-  const linhas = card.itens.map(it => `
-    <tr>
-      <td style="padding:8px;border-bottom:1px solid #DCE3E8;">${it.nome}</td>
-      <td style="padding:8px;border-bottom:1px solid #DCE3E8;text-align:right;">R$ ${(parseFloat(it.valorPeca) || 0).toFixed(2)}</td>
-      <td style="padding:8px;border-bottom:1px solid #DCE3E8;text-align:right;">R$ ${(parseFloat(it.valorMaoDeObra) || 0).toFixed(2)}</td>
-      <td style="padding:8px;border-bottom:1px solid #DCE3E8;text-align:right;">R$ ${itemTotal(it).toFixed(2)}</td>
-    </tr>`).join("");
-  const nomeOficina = oficina && oficina.nome || "Oficina";
-  const logoHtml = oficina && oficina.logo ? `<img src="${oficina.logo}" alt="Logo" style="height:56px;max-width:140px;object-fit:contain;" />` : "";
-  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Orçamento ${card.placa}</title></head>
-  <body style="font-family:Arial,sans-serif;color:#1E2A35;padding:24px;max-width:700px;margin:auto;">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-      ${logoHtml}
-      <div>
-        <h1 style="font-size:20px;margin-bottom:2px;">${nomeOficina}</h1>
-        <p style="font-size:13px;color:#5B6B78;margin:0;">Orçamento / Ordem de Serviço</p>
+  const cardCalc = {
+    ...card,
+    total: subtotal
+  };
+  const jurosRS = valorJurosCard(cardCalc);
+  const totalFinal = totalComDesconto(cardCalc);
+  const cinza = "#5B6B78",
+    borda = "#DCE3E8",
+    escuro = "#1E2A35",
+    laranja = "#E4572E";
+  const td = "padding:7px 8px;border-bottom:1px solid " + borda + ";vertical-align:top;";
+  const linhas = itens.map((it, idx) => `
+    <tr style="page-break-inside:avoid;${idx % 2 ? "background:#F6F8FA;" : ""}">
+      <td style="${td}color:${cinza};width:28px;">${idx + 1}</td>
+      <td style="${td}">${esc(it.nome) || "-"}</td>
+      <td style="${td}text-align:right;white-space:nowrap;">${brl(it.valorPeca)}</td>
+      <td style="${td}text-align:right;white-space:nowrap;">${brl(it.valorMaoDeObra)}</td>
+      <td style="${td}text-align:right;white-space:nowrap;font-weight:bold;">${brl(itemTotal(it))}</td>
+    </tr>`).join("") || `<tr><td colspan="5" style="${td}text-align:center;color:${cinza};">Nenhum item lançado</td></tr>`;
+  const nomeOficina = esc(oficina && oficina.nome || "Oficina");
+  const logoHtml = oficina && oficina.logo ? `<img src="${oficina.logo}" alt="Logo" style="height:56px;max-width:150px;object-fit:contain;" />` : "";
+  const veiculo = [card.marca, card.modelo].filter(Boolean).map(esc).join(" ");
+  const campo = (rotulo, valor) => valor ? `<div style="margin:2px 0;"><b>${rotulo}:</b> ${esc(valor)}</div>` : "";
+  const linhaResumo = (rotulo, valor, extra) => `<tr><td style="padding:4px 8px;${extra || ""}">${rotulo}</td><td style="padding:4px 8px;text-align:right;white-space:nowrap;${extra || ""}">${valor}</td></tr>`;
+  const pagamentoTxt = formaPagamento.tipo + (formaPagamento.tipo === "Cartão parcelado" ? ` em ${formaPagamento.parcelas}x de ${brl(totalFinal / (formaPagamento.parcelas || 1))}` : "");
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Orçamento ${esc(card.placa)}</title></head>
+  <body style="font-family:Arial,sans-serif;color:${escuro};padding:24px;max-width:700px;margin:auto;font-size:13px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:10px;border-bottom:3px solid ${laranja};margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        ${logoHtml}
+        <div>
+          <div style="font-size:20px;font-weight:bold;">${nomeOficina}</div>
+          <div style="font-size:13px;color:${cinza};">Orçamento / Ordem de Serviço</div>
+        </div>
+      </div>
+      <div style="text-align:right;font-size:12px;color:${cinza};">
+        <div>Emitido em ${formatDate(new Date())}</div>
+        ${card.placa ? `<div style="font-size:15px;font-weight:bold;color:${escuro};font-family:monospace;letter-spacing:1px;margin-top:2px;">${esc(card.placa)}</div>` : ""}
       </div>
     </div>
-    <p style="font-size:13px;color:#5B6B78;margin-bottom:16px;">Emitido em ${formatDate(new Date())}</p>
-    <p style="font-size:14px;"><b>Cliente:</b> ${card.cliente}</p>
-    <p style="font-size:14px;"><b>CPF:</b> ${card.cpf || "-"}</p>
-    <p style="font-size:14px;margin-bottom:16px;"><b>Placa:</b> ${card.placa}</p>
-    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
-      <thead><tr style="border-bottom:2px solid #1E2A35;">
-        <th style="text-align:left;padding:8px;">Item</th>
-        <th style="text-align:right;padding:8px;">Peça</th>
-        <th style="text-align:right;padding:8px;">Mão de obra</th>
-        <th style="text-align:right;padding:8px;">Subtotal</th>
+    <div style="display:flex;gap:16px;margin-bottom:16px;">
+      <div style="flex:1;border:1px solid ${borda};border-radius:6px;padding:8px 10px;">
+        <div style="font-size:11px;font-weight:bold;color:${cinza};text-transform:uppercase;margin-bottom:4px;">Cliente</div>
+        ${campo("Nome", card.cliente)}${campo("CPF", card.cpf)}${campo("Telefone", card.telefone)}${campo("Endereço", card.endereco)}
+      </div>
+      <div style="flex:1;border:1px solid ${borda};border-radius:6px;padding:8px 10px;">
+        <div style="font-size:11px;font-weight:bold;color:${cinza};text-transform:uppercase;margin-bottom:4px;">Veículo</div>
+        ${campo("Veículo", veiculo)}${campo("Placa", card.placa)}${campo("Ano", card.ano)}${campo("KM", card.km)}
+      </div>
+    </div>
+    <div style="font-size:11px;font-weight:bold;color:${cinza};text-transform:uppercase;margin-bottom:4px;">Serviços e peças</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:13px;">
+      <thead><tr style="background:${escuro};color:#fff;">
+        <th style="text-align:left;padding:7px 8px;">#</th>
+        <th style="text-align:left;padding:7px 8px;">Descrição</th>
+        <th style="text-align:right;padding:7px 8px;">Peças</th>
+        <th style="text-align:right;padding:7px 8px;">Mão de obra</th>
+        <th style="text-align:right;padding:7px 8px;">Total item</th>
       </tr></thead>
       <tbody>${linhas}</tbody>
     </table>
-    <div style="text-align:right;font-size:14px;">
-      <p>Subtotal: R$ ${subtotal.toFixed(2)}</p>
-      ${descontoRS > 0 ? `<p>Desconto: - R$ ${descontoRS.toFixed(2)}</p>` : ""}
-      ${jurosRS > 0 ? `<p>Juros parcelamento (${formaPagamento.parcelas}x): + R$ ${jurosRS.toFixed(2)}</p>` : ""}
-      <p style="font-size:18px;font-weight:bold;">Total: R$ ${totalFinal.toFixed(2)}</p>
-      <p style="font-size:13px;color:#5B6B78;">Forma de pagamento: ${formaPagamento.tipo}${formaPagamento.tipo === "Cartão parcelado" ? ` em ${formaPagamento.parcelas}x` : ""}</p>
+    <div style="display:flex;justify-content:flex-end;page-break-inside:avoid;">
+      <table style="border-collapse:collapse;min-width:300px;font-size:13px;">
+        ${linhaResumo("Total em peças", brl(totalPecas))}
+        ${linhaResumo("Total em mão de obra", brl(totalMao))}
+        ${linhaResumo("Subtotal", brl(subtotal), "border-top:1px solid " + borda + ";")}
+        ${descontoRS > 0 ? linhaResumo("Desconto" + (desconto.tipo === "percentual" ? ` (${desconto.valor}%)` : ""), "- " + brl(descontoRS), "color:#2E7D32;") : ""}
+        ${jurosRS > 0 ? linhaResumo(`Juros parcelamento (${formaPagamento.parcelas}x)`, "+ " + brl(jurosRS)) : ""}
+        ${linhaResumo("TOTAL", brl(totalFinal), "font-size:17px;font-weight:bold;color:" + laranja + ";border-top:2px solid " + escuro + ";padding-top:8px;")}
+        ${linhaResumo("Forma de pagamento", esc(pagamentoTxt), "font-size:12px;color:" + cinza + ";")}
+      </table>
+    </div>
+    ${card.observacoes && String(card.observacoes).trim() ? `<div style="margin-top:16px;border:1px solid ${borda};border-left:4px solid ${laranja};border-radius:6px;padding:8px 10px;page-break-inside:avoid;">
+      <div style="font-size:11px;font-weight:bold;color:${cinza};text-transform:uppercase;margin-bottom:4px;">Observações / serviço realizado</div>
+      <div style="white-space:pre-wrap;line-height:1.45;">${esc(String(card.observacoes).trim())}</div>
+    </div>` : ""}
+    <div style="margin-top:28px;font-size:11px;color:${cinza};text-align:center;border-top:1px solid ${borda};padding-top:8px;">
+      ${nomeOficina} · Orçamento gerado em ${formatDate(new Date())}
     </div>
   </body></html>`;
 }
@@ -2475,18 +2522,21 @@ function OficinaApp() {
       showToast("Gerando PDF...");
       const doc = new DOMParser().parseFromString(gerarHtmlOrcamento(card, oficina), "text/html");
       const el = document.createElement("div");
-      el.setAttribute("style", (doc.body.getAttribute("style") || "") + ";width:700px;background:#fff;");
+      el.setAttribute("style", (doc.body.getAttribute("style") || "") + ";width:700px;max-width:none;margin:0;box-sizing:border-box;background:#fff;");
       el.innerHTML = doc.body.innerHTML;
+      const scrollAntes = window.scrollY;
+      window.scrollTo(0, 0);
       const dataArq = new Date().toISOString().slice(0, 10);
       const placaArq = String(card.placa || "orcamento").replace(/[^A-Za-z0-9-]/g, "");
       await window.html2pdf().set({
         margin: [10, 8, 10, 8],
         filename: `orcamento_${placaArq}_${dataArq}.pdf`,
         image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff", scrollX: 0, scrollY: 0 },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
         pagebreak: { mode: ["css", "legacy"], avoid: "tr" }
       }).from(el).save();
+      window.scrollTo(0, scrollAntes);
       showToast(`PDF baixado: orcamento_${placaArq}_${dataArq}.pdf`);
     } catch (err) {
       console.error("Erro ao gerar PDF", err);
