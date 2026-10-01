@@ -533,6 +533,145 @@ function totalComDesconto(card) {
   const base = baseAposDesconto(card);
   return base + valorJurosCard(card);
 }
+function formatBRL(v) {
+  const n = Number(v) || 0;
+  return (n < -0.004 ? "- " : "") + "R$ " + Math.abs(n).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+// Separa o valor de um card em: peças (repasse), mão de obra (o que fica pra oficina) e juros (repasse à maquininha).
+// O desconto sai primeiro da mão de obra (a peça precisa ser paga inteira); se passar dela, abate das peças.
+function quebraFinanceira(card) {
+  const itens = card.itens || [];
+  const pecas = itens.reduce((s, it) => s + (parseFloat(it.valorPeca) || 0), 0);
+  const maoDeObra = itens.reduce((s, it) => s + (parseFloat(it.valorMaoDeObra) || 0), 0);
+  const desconto = Math.min(valorDesconto(card.total, card.desconto), pecas + maoDeObra);
+  const descontoNaMao = Math.min(desconto, maoDeObra);
+  const descontoNaPeca = desconto - descontoNaMao;
+  const juros = valorJurosCard(card);
+  return {
+    pecas,
+    maoDeObra,
+    desconto,
+    juros,
+    pecasLiquido: pecas - descontoNaPeca,
+    maoDeObraLiquida: maoDeObra - descontoNaMao,
+    total: totalComDesconto(card)
+  };
+}
+function somaQuebra(cards) {
+  return cards.reduce((acc, c) => {
+    const q = quebraFinanceira(c);
+    Object.keys(q).forEach(k => acc[k] = (acc[k] || 0) + q[k]);
+    return acc;
+  }, {
+    pecas: 0,
+    maoDeObra: 0,
+    desconto: 0,
+    juros: 0,
+    pecasLiquido: 0,
+    maoDeObraLiquida: 0,
+    total: 0
+  });
+}
+function ResumoFinanceiro({
+  recebido,
+  aReceber,
+  qtdPagos,
+  finalizados,
+  rotuloPeriodo,
+  gastosFixosPeriodo,
+  rotuloMesGastos
+}) {
+  const h = React.createElement;
+  const base = recebido.total || 0;
+  const pct = v => base > 0 ? Math.max(0, v / base * 100) : 0;
+  const tile = (titulo, valor, sub, cor, fundo, destaque) => h("div", {
+    className: "rounded-xl p-4",
+    style: {
+      background: fundo,
+      border: `${destaque ? 2 : 1}px solid ${cor}`
+    }
+  }, h("div", {
+    className: "text-xs font-semibold",
+    style: {
+      color: cor
+    }
+  }, titulo), h("div", {
+    className: destaque ? "text-2xl font-extrabold" : "text-xl font-extrabold",
+    style: {
+      color: cor
+    }
+  }, valor), sub && h("div", {
+    className: "text-xs mt-1",
+    style: {
+      color: TOKENS.inkSoft
+    }
+  }, sub));
+  const resultado = gastosFixosPeriodo != null ? recebido.maoDeObraLiquida - gastosFixosPeriodo : null;
+  const ticketMO = qtdPagos > 0 ? recebido.maoDeObraLiquida / qtdPagos : 0;
+  const segmentos = [{
+    rotulo: "Mão de obra",
+    valor: recebido.maoDeObraLiquida,
+    cor: TOKENS.success
+  }, {
+    rotulo: "Peças / material",
+    valor: recebido.pecasLiquido,
+    cor: TOKENS.plateBlue
+  }, {
+    rotulo: "Juros cartão",
+    valor: recebido.juros,
+    cor: "#9AA7B1"
+  }].filter(sg => sg.valor > 0.004);
+  return h(React.Fragment, null, h("div", {
+    className: "grid grid-cols-1 md:grid-cols-3 gap-4 mb-4"
+  }, tile("Recebido " + rotuloPeriodo + " (total)", formatBRL(recebido.total), `${qtdPagos} pagamento(s) · inclui peças e juros`, TOKENS.ink, "#fff"), tile("A receber (todos os períodos)", formatBRL(aReceber.total), `sendo ${formatBRL(aReceber.maoDeObraLiquida)} de mão de obra e ${formatBRL(aReceber.pecasLiquido)} de peças`, TOKENS.warn, TOKENS.warnSoft), tile("Carros finalizados " + rotuloPeriodo, finalizados, null, TOKENS.accentDark, TOKENS.accentSoft)), h("div", {
+    className: "rounded-xl p-4 mb-6",
+    style: {
+      background: "#fff",
+      border: `2px solid ${TOKENS.border}`
+    }
+  }, h("div", {
+    className: "text-sm font-bold mb-3",
+    style: {
+      color: TOKENS.ink
+    }
+  }, "De onde veio o dinheiro recebido ", rotuloPeriodo), h("div", {
+    className: "grid grid-cols-1 md:grid-cols-3 gap-3 mb-3"
+  }, tile("Mão de obra — o que ficou pra oficina", formatBRL(recebido.maoDeObraLiquida), (recebido.desconto > 0 ? `já descontados ${formatBRL(recebido.desconto)} de descontos · ` : "") + `${pct(recebido.maoDeObraLiquida).toFixed(0)}% do recebido`, TOKENS.success, TOKENS.successSoft, true), tile("Peças / material — repasse", formatBRL(recebido.pecasLiquido), `dinheiro que cobre a compra das peças · ${pct(recebido.pecasLiquido).toFixed(0)}%`, TOKENS.plateBlue, "#E6EEF8"), tile("Juros de parcelamento — repasse", formatBRL(recebido.juros), "fica com a maquininha do cartão", TOKENS.inkSoft, TOKENS.bg)), base > 0 && h("div", {
+    className: "flex w-full rounded-full overflow-hidden mb-2",
+    style: {
+      height: 12,
+      background: TOKENS.bg
+    }
+  }, segmentos.map(sg => h("div", {
+    key: sg.rotulo,
+    title: `${sg.rotulo}: ${formatBRL(sg.valor)}`,
+    style: {
+      width: pct(sg.valor) + "%",
+      background: sg.cor
+    }
+  }))), base > 0 && h("div", {
+    className: "flex flex-wrap gap-4 text-xs mb-3",
+    style: {
+      color: TOKENS.inkSoft
+    }
+  }, segmentos.map(sg => h("span", {
+    key: sg.rotulo,
+    className: "flex items-center gap-1"
+  }, h("span", {
+    style: {
+      width: 10,
+      height: 10,
+      borderRadius: 2,
+      background: sg.cor,
+      display: "inline-block"
+    }
+  }), sg.rotulo, " ", pct(sg.valor).toFixed(0), "%"))), h("div", {
+    className: "grid grid-cols-1 md:grid-cols-3 gap-3"
+  }, tile("Média de mão de obra por carro pago", formatBRL(ticketMO), null, TOKENS.ink, TOKENS.bg), resultado != null ? tile("Gastos fixos de " + rotuloMesGastos, "- " + formatBRL(gastosFixosPeriodo), "luz, aluguel, salários... (cadastrados abaixo)", TOKENS.warn, TOKENS.warnSoft) : tile("Gastos fixos", "—", "escolha um mês no filtro de período pra ver o resultado", TOKENS.inkSoft, TOKENS.bg), resultado != null ? tile("Sobra do mês (mão de obra − gastos fixos)", formatBRL(resultado), resultado >= 0 ? "o que sobrou de fato" : "a mão de obra não cobriu os gastos fixos", resultado >= 0 ? TOKENS.success : TOKENS.warn, resultado >= 0 ? TOKENS.successSoft : TOKENS.warnSoft, true) : tile("Sobra do mês", "—", "disponível ao filtrar um mês específico", TOKENS.inkSoft, TOKENS.bg))));
+}
 function Toast({
   message
 }) {
@@ -2547,12 +2686,13 @@ function OficinaApp() {
   const baixarNotas = listaFiltrada => {
     const base = listaFiltrada || cards;
     const fechados = base.filter(c => c.pagamento.status === "pago");
-    const header = "Placa;Cliente;CPF;Total pecas;Total mao de obra;Desconto;Total geral;Forma de pagamento;Data do pagamento\n";
+    const header = "Placa;Cliente;CPF;Total pecas;Total mao de obra;Desconto;Juros parcelamento;Mao de obra liquida (fica pra oficina);Pecas liquido (repasse);Total geral;Forma de pagamento;Data do pagamento\n";
     const linhas = fechados.map(c => {
       const tPeca = c.itens.reduce((s, it) => s + (parseFloat(it.valorPeca) || 0), 0);
       const tMao = c.itens.reduce((s, it) => s + (parseFloat(it.valorMaoDeObra) || 0), 0);
       const desc = valorDesconto(c.total, c.desconto);
-      return `${c.placa};${c.cliente};${c.cpf || ""};${tPeca.toFixed(2)};${tMao.toFixed(2)};${desc.toFixed(2)};${totalComDesconto(c).toFixed(2)};${c.pagamento.forma};${c.pagamento.data ? formatDate(c.pagamento.data) : ""}`;
+      const q = quebraFinanceira(c);
+      return `${c.placa};${c.cliente};${c.cpf || ""};${tPeca.toFixed(2).replace(".", ",")};${tMao.toFixed(2).replace(".", ",")};${desc.toFixed(2).replace(".", ",")};${q.juros.toFixed(2).replace(".", ",")};${q.maoDeObraLiquida.toFixed(2).replace(".", ",")};${q.pecasLiquido.toFixed(2).replace(".", ",")};${totalComDesconto(c).toFixed(2).replace(".", ",")};${c.pagamento.forma};${c.pagamento.data ? formatDate(c.pagamento.data) : ""}`;
     }).join("\n");
     const blob = new Blob(["\uFEFF" + header + linhas], {
       type: "text/csv;charset=utf-8;"
@@ -2920,8 +3060,14 @@ function OficinaApp() {
       const cardsNoPeriodo = cards.filter(c => dentroDoIntervalo(c.dataEntrada, intervalo));
       const cardsPagosNoPeriodo = cards.filter(c => c.pagamento.status === "pago" && c.pagamento.data && dentroDoIntervalo(c.pagamento.data, intervalo));
       const totalMes = cardsPagosNoPeriodo.reduce((s, c) => s + totalComDesconto(c), 0);
+      const quebraRecebido = somaQuebra(cardsPagosNoPeriodo);
+      const mesUnicoPeriodo = ["mes_atual", "mes_passado", "escolher"].includes(periodoPreset) && intervalo;
+      const chaveMesPeriodo = mesUnicoPeriodo ? chaveMes(intervalo.inicio.getMonth(), intervalo.inicio.getFullYear()) : null;
+      const gastosFixosPeriodo = mesUnicoPeriodo ? gastosFixos.reduce((s, g) => s + valorGastoNoMes(g, chaveMesPeriodo), 0) : null;
+      const rotuloMesGastos = mesUnicoPeriodo ? `${NOMES_MESES[intervalo.inicio.getMonth()]}/${intervalo.inicio.getFullYear()}` : "";
       const pendentesTodos = [...cards].filter(c => c.pagamento.status === "pendente").sort((a, b) => a.dataEntrada - b.dataEntrada);
       const totalAReceber = pendentesTodos.reduce((s, c) => s + totalComDesconto(c), 0);
+      const quebraAReceber = somaQuebra(pendentesTodos);
       const finalizadosMes = cards.filter(c => c.dataFinalizacao && dentroDoIntervalo(c.dataFinalizacao, intervalo)).length;
       const ordenados = [...cardsNoPeriodo].sort((a, b) => b.dataEntrada - a.dataEntrada);
       const arquivadosTodos = [...cards].filter(c => c.arquivado).sort((a, b) => (b.dataFinalizacao || b.dataEntrada) - (a.dataFinalizacao || a.dataEntrada));
@@ -3041,57 +3187,15 @@ function OficinaApp() {
         style: inputStyle,
         value: anoEscolhido,
         onChange: e => setAnoEscolhido(parseInt(e.target.value) || anoEscolhido)
-      })))), /*#__PURE__*/React.createElement("div", {
-        className: "grid grid-cols-3 gap-4 mb-6"
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "rounded-xl p-4",
-        style: {
-          background: TOKENS.successSoft,
-          border: `1px solid ${TOKENS.success}`
-        }
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "text-xs font-semibold",
-        style: {
-          color: TOKENS.success
-        }
-      }, "Recebido ", rotuloPeriodo), /*#__PURE__*/React.createElement("div", {
-        className: "text-xl font-extrabold",
-        style: {
-          color: TOKENS.success
-        }
-      }, "R$ ", totalMes.toFixed(2))), /*#__PURE__*/React.createElement("div", {
-        className: "rounded-xl p-4",
-        style: {
-          background: TOKENS.warnSoft,
-          border: `1px solid ${TOKENS.warn}`
-        }
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "text-xs font-semibold",
-        style: {
-          color: TOKENS.warn
-        }
-      }, "A receber (todos os períodos)"), /*#__PURE__*/React.createElement("div", {
-        className: "text-xl font-extrabold",
-        style: {
-          color: TOKENS.warn
-        }
-      }, "R$ ", totalAReceber.toFixed(2))), /*#__PURE__*/React.createElement("div", {
-        className: "rounded-xl p-4",
-        style: {
-          background: TOKENS.accentSoft,
-          border: `1px solid ${TOKENS.accent}`
-        }
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "text-xs font-semibold",
-        style: {
-          color: TOKENS.accentDark
-        }
-      }, "Carros finalizados ", rotuloPeriodo), /*#__PURE__*/React.createElement("div", {
-        className: "text-xl font-extrabold",
-        style: {
-          color: TOKENS.accentDark
-        }
-      }, finalizadosMes))), pendentesTodos.length > 0 && /*#__PURE__*/React.createElement("div", {
+      })))), /*#__PURE__*/React.createElement(ResumoFinanceiro, {
+        recebido: quebraRecebido,
+        aReceber: quebraAReceber,
+        qtdPagos: cardsPagosNoPeriodo.length,
+        finalizados: finalizadosMes,
+        rotuloPeriodo: rotuloPeriodo,
+        gastosFixosPeriodo: gastosFixosPeriodo,
+        rotuloMesGastos: rotuloMesGastos
+      }), pendentesTodos.length > 0 && /*#__PURE__*/React.createElement("div", {
         className: "rounded-xl p-4 mb-6",
         style: {
           background: TOKENS.warnSoft,
@@ -3489,7 +3593,15 @@ function OficinaApp() {
           style: {
             color: TOKENS.ink
           }
-        }, "R$ ", totalComDesconto(c).toFixed(2)), /*#__PURE__*/React.createElement("button", {
+        }, "R$ ", totalComDesconto(c).toFixed(2)), /*#__PURE__*/React.createElement("span", {
+          className: "text-xs",
+          style: {
+            color: TOKENS.inkSoft
+          }
+        }, (() => {
+          const q = quebraFinanceira(c);
+          return `m.o. ${formatBRL(q.maoDeObraLiquida)} · peças ${formatBRL(q.pecasLiquido)}`;
+        })()), /*#__PURE__*/React.createElement("button", {
           onClick: () => {
             setExcluirFinanceiroId(c.id);
             setSenhaExcluir("");
