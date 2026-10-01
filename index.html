@@ -609,7 +609,7 @@ function ResumoFinanceiro({
       color: TOKENS.inkSoft
     }
   }, sub));
-  const resultado = gastosFixosPeriodo != null ? recebido.maoDeObraLiquida - gastosFixosPeriodo : null;
+  const resultado = recebido.maoDeObraLiquida - (gastosFixosPeriodo || 0);
   const ticketMO = qtdPagos > 0 ? recebido.maoDeObraLiquida / qtdPagos : 0;
   const segmentos = [{
     rotulo: "Mão de obra",
@@ -670,7 +670,33 @@ function ResumoFinanceiro({
     }
   }), sg.rotulo, " ", pct(sg.valor).toFixed(0), "%"))), h("div", {
     className: "grid grid-cols-1 md:grid-cols-3 gap-3"
-  }, tile("Média de mão de obra por carro pago", formatBRL(ticketMO), null, TOKENS.ink, TOKENS.bg), resultado != null ? tile("Gastos fixos de " + rotuloMesGastos, "- " + formatBRL(gastosFixosPeriodo), "luz, aluguel, salários... (cadastrados abaixo)", TOKENS.warn, TOKENS.warnSoft) : tile("Gastos fixos", "—", "escolha um mês no filtro de período pra ver o resultado", TOKENS.inkSoft, TOKENS.bg), resultado != null ? tile("Sobra do mês (mão de obra − gastos fixos)", formatBRL(resultado), resultado >= 0 ? "o que sobrou de fato" : "a mão de obra não cobriu os gastos fixos", resultado >= 0 ? TOKENS.success : TOKENS.warn, resultado >= 0 ? TOKENS.successSoft : TOKENS.warnSoft, true) : tile("Sobra do mês", "—", "disponível ao filtrar um mês específico", TOKENS.inkSoft, TOKENS.bg))));
+  }, tile("Média de mão de obra por carro pago", formatBRL(ticketMO), null, TOKENS.ink, TOKENS.bg), tile("Gastos fixos" + (rotuloMesGastos ? " (" + rotuloMesGastos + ")" : ""), "- " + formatBRL(gastosFixosPeriodo), gastosFixosPeriodo > 0 ? "luz, aluguel, salários... (cadastrados abaixo)" : "nenhum gasto fixo cadastrado", TOKENS.warn, TOKENS.warnSoft), tile("Carros pra cobrir os gastos fixos", ticketMO > 0 && gastosFixosPeriodo > 0 ? `${Math.ceil(gastosFixosPeriodo / ticketMO)} carros` : "—", ticketMO > 0 && gastosFixosPeriodo > 0 ? `na média atual de mão de obra · já pagos: ${qtdPagos}` : "precisa de carros pagos e gastos cadastrados", TOKENS.ink, TOKENS.bg))), h("div", {
+    className: "rounded-xl p-5 mb-6",
+    style: {
+      background: resultado >= 0 ? TOKENS.successSoft : TOKENS.warnSoft,
+      border: `3px solid ${resultado >= 0 ? TOKENS.success : TOKENS.warn}`
+    }
+  }, h("div", {
+    className: "text-sm font-bold mb-1",
+    style: {
+      color: resultado >= 0 ? TOKENS.success : TOKENS.warn
+    }
+  }, "Lucro líquido ", rotuloPeriodo, " — mão de obra menos gastos fixos"), h("div", {
+    className: "text-3xl font-extrabold mb-2",
+    style: {
+      color: resultado >= 0 ? TOKENS.success : TOKENS.warn
+    }
+  }, formatBRL(resultado)), h("div", {
+    className: "text-sm",
+    style: {
+      color: TOKENS.ink
+    }
+  }, formatBRL(recebido.maoDeObraLiquida), " (mão de obra recebida) − ", formatBRL(gastosFixosPeriodo), " (gastos fixos", rotuloMesGastos ? " " + rotuloMesGastos : "", ") = ", h("b", null, formatBRL(resultado))), h("div", {
+    className: "text-xs mt-1",
+    style: {
+      color: TOKENS.inkSoft
+    }
+  }, resultado >= 0 ? "Esse é o dinheiro que sobrou de fato para a oficina. Peças e juros do cartão não entram, porque só cobrem custos." : "A mão de obra recebida ainda não cobriu os gastos fixos do período.")));
 }
 function Toast({
   message
@@ -3061,10 +3087,49 @@ function OficinaApp() {
       const cardsPagosNoPeriodo = cards.filter(c => c.pagamento.status === "pago" && c.pagamento.data && dentroDoIntervalo(c.pagamento.data, intervalo));
       const totalMes = cardsPagosNoPeriodo.reduce((s, c) => s + totalComDesconto(c), 0);
       const quebraRecebido = somaQuebra(cardsPagosNoPeriodo);
-      const mesUnicoPeriodo = ["mes_atual", "mes_passado", "escolher"].includes(periodoPreset) && intervalo;
-      const chaveMesPeriodo = mesUnicoPeriodo ? chaveMes(intervalo.inicio.getMonth(), intervalo.inicio.getFullYear()) : null;
-      const gastosFixosPeriodo = mesUnicoPeriodo ? gastosFixos.reduce((s, g) => s + valorGastoNoMes(g, chaveMesPeriodo), 0) : null;
-      const rotuloMesGastos = mesUnicoPeriodo ? `${NOMES_MESES[intervalo.inicio.getMonth()]}/${intervalo.inicio.getFullYear()}` : "";
+      // Gastos fixos do período: soma mês a mês (proporcional aos dias quando o período pega só parte do mês).
+      // Nunca conta meses futuros.
+      const calcGastosPeriodo = () => {
+        const hojeG = new Date();
+        const fimMesAtual = new Date(hojeG.getFullYear(), hojeG.getMonth() + 1, 0, 23, 59, 59);
+        let ini, fim;
+        if (intervalo) {
+          ini = intervalo.inicio;
+          fim = intervalo.fim > fimMesAtual ? fimMesAtual : intervalo.fim;
+        } else {
+          const datas = cards.map(c => c.dataEntrada).filter(Boolean).map(d => new Date(d));
+          ini = datas.length ? new Date(Math.min(...datas)) : new Date(hojeG.getFullYear(), hojeG.getMonth(), 1);
+          ini = new Date(ini.getFullYear(), ini.getMonth(), 1);
+          fim = fimMesAtual;
+        }
+        // Não conta meses antes do primeiro carro lançado no sistema
+        const datasCards = cards.map(c => c.dataEntrada).filter(Boolean).map(d => new Date(d));
+        if (datasCards.length) {
+          const primeiro = new Date(Math.min(...datasCards));
+          const inicioPrimeiroMes = new Date(primeiro.getFullYear(), primeiro.getMonth(), 1);
+          if (ini < inicioPrimeiroMes) ini = inicioPrimeiroMes;
+        }
+        if (ini > fim) return { total: 0, meses: [] };
+        let total = 0;
+        const meses = [];
+        let cursor = new Date(ini.getFullYear(), ini.getMonth(), 1);
+        while (cursor <= fim) {
+          const m = cursor.getMonth(), y = cursor.getFullYear();
+          const inicioMes = new Date(y, m, 1), fimMes = new Date(y, m + 1, 0, 23, 59, 59);
+          const diasMes = new Date(y, m + 1, 0).getDate();
+          const a = ini > inicioMes ? ini : inicioMes, b = fim < fimMes ? fim : fimMes;
+          const dias = Math.min(diasMes, Math.round((b - a) / 86400000));
+          const frac = dias >= diasMes - 1 ? 1 : Math.max(0, dias) / diasMes;
+          const valorMes = gastosFixos.reduce((s, g) => s + valorGastoNoMes(g, chaveMes(m, y)), 0);
+          total += valorMes * frac;
+          meses.push(`${NOMES_MESES[m].slice(0, 3)}/${y}` + (frac < 1 ? ` (${Math.round(frac * 100)}%)` : ""));
+          cursor = new Date(y, m + 1, 1);
+        }
+        return { total, meses };
+      };
+      const gastosCalc = calcGastosPeriodo();
+      const gastosFixosPeriodo = gastosCalc.total;
+      const rotuloMesGastos = gastosCalc.meses.length === 1 ? gastosCalc.meses[0] : gastosCalc.meses.length > 1 ? `${gastosCalc.meses[0]} a ${gastosCalc.meses[gastosCalc.meses.length - 1]}` : "";
       const pendentesTodos = [...cards].filter(c => c.pagamento.status === "pendente").sort((a, b) => a.dataEntrada - b.dataEntrada);
       const totalAReceber = pendentesTodos.reduce((s, c) => s + totalComDesconto(c), 0);
       const quebraAReceber = somaQuebra(pendentesTodos);
